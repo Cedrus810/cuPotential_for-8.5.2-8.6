@@ -1,0 +1,107 @@
+#!/bin/bash
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# End-to-end sample: build and run a particle-mesh consumer linking against the
+# LTO-IR math object and libcupo's compact convolution API.
+#
+# Usage:  ./run [standard|fast_math]   (default: standard)
+# REF_BIN overrides the packaged water_10k reference.
+#
+# Runs from the source tree after ./run_build, from the unpacked cupo archive or
+# OpenMM source tarball, or from a GitHub clone, where common.sh first downloads
+# build/ from the release.
+# The shipped reference needs no Python packages at execution time.
+# BUILD_DIR optionally selects a writable output directory for a read-only SDK.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../common.sh"
+REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+cupo_layout "$REPO_DIR"
+usage() {
+    echo "Usage: $0 [standard|fast_math]" >&2
+    exit 1
+}
+if [ "$#" -gt 1 ]; then usage; fi
+VARIANT="${1:-standard}"
+case "$VARIANT" in
+    standard|fast_math) ;;
+    *) usage ;;
+esac
+BUILD_DIR="${BUILD_DIR:-$SCRIPT_DIR}"
+mkdir -p "$BUILD_DIR"
+BUILD_DIR="$(cd "$BUILD_DIR" && pwd)"
+REF_BIN="${REF_BIN:-$REPO_DIR/data/water_10k/water_10k_ref.bin}"
+if [ ! -f "$REF_BIN" ]; then
+    echo "Reference data file not found: $REF_BIN" >&2
+    echo "Use the shipped water reference or generate one with gen_reference_bin.py." >&2
+    exit 1
+fi
+
+if [ ! -f "$CUPO_LIB_DIR/libcupo.so" ]; then
+    echo "This sample requires $CUPO_LIB_DIR/libcupo.so." >&2
+    exit 1
+fi
+
+if [ -z "$CUPO_COMPACT_ARCHS" ]; then
+    echo "The runtime was built without compact convolution (runtime_build.json)." >&2
+    echo "Build with CUPO_BUILD_COMPACT_CONVOLUTION=ON (the default) before running it." >&2
+    exit 1
+fi
+
+OBJECT_DIR="$CUPO_LTOIR_DIR/$VARIANT"
+MATH_OBJECT="$OBJECT_DIR/cupo_math.cu.o"
+if [ ! -f "$MATH_OBJECT" ]; then
+    echo "LTO-IR object not found: $MATH_OBJECT" >&2
+    exit 1
+fi
+
+# Use the same CUDA-selected device for scalar compilation and compact checks.
+SM=$(detect_architecture)
+
+MATH_FLAGS=()
+if [ "$VARIANT" = "fast_math" ]; then
+    MATH_FLAGS=(--use_fast_math)
+fi
+
+# ── End-to-end demo: Coulomb + dispersion ────────────────────────────────
+echo "=== Building usage demo (Coulomb + dispersion, $VARIANT) ==="
+echo "Reference: $REF_BIN"
+# Two-step build: compile usage.cu with -dc and an LTO target, then
+# device-link with the LTO-IR math object.
+nvcc -std=c++17 -dc -O3 "${MATH_FLAGS[@]}" \
+    -gencode arch=compute_${SM},code=lto_${SM} \
+    -Xcompiler -fopenmp \
+    "${CUPO_INCLUDE_FLAGS[@]}" \
+    "$SCRIPT_DIR/usage.cu" \
+    -o "$BUILD_DIR/usage.o"
+
+# cupo_math.cu.o supplies both Prolate splitting and C²-order-3 spreading
+# (cupo_spread_1d_f64 / cupo_interpolate_1d_f64 /
+# cupo_discrete_fourier_kernel_1d_*). The runtime supplies
+# cupo_plan_grid and splitting-plan lifecycle calls for every sample mode,
+# as well as the optional GPU compact convolution.
+nvcc -std=c++17 -dlto -O3 "${MATH_FLAGS[@]}" \
+    -gencode arch=compute_${SM},code=sm_${SM} \
+    -Xcompiler -fopenmp \
+    "$BUILD_DIR/usage.o" \
+    "$MATH_OBJECT" \
+    -L"$CUPO_LIB_DIR" -lcupo \
+    -Xlinker '-rpath=$ORIGIN/../../build' \
+    -Xlinker "-rpath=$CUPO_LIB_DIR" \
+    -o "$BUILD_DIR/usage_prolate"
+
+echo "=== Running usage demo (exact reciprocal) ==="
+"$BUILD_DIR/usage_prolate" "$REF_BIN"
+echo ""
+echo "=== Running usage demo (--particle-mesh, auto-planned grid) ==="
+"$BUILD_DIR/usage_prolate" "$REF_BIN" --particle-mesh
+case ";$CUPO_COMPACT_ARCHS;" in
+    *";$SM;"*)
+        echo ""
+        echo "=== Running usage demo (--compact, auto-planned grid) ==="
+        "$BUILD_DIR/usage_prolate" "$REF_BIN" --compact
+        ;;
+    *) echo "Skipping compact demo: sm_${SM} is absent from compiled targets $CUPO_COMPACT_ARCHS." ;;
+esac

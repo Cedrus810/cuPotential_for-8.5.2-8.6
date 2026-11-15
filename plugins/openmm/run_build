@@ -1,0 +1,135 @@
+#!/bin/bash
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# run_build — Build the OpenMM Nvidia/Cupo plugin.
+# Produces: build/libOpenMMNvidia.so, build/libOpenMMNvidiaCUDA.so
+#
+# Prerequisites (in docker): OpenMM at /opt/openmm, CUDA toolkit.
+# The cupo runtime (libcupo.so) is built automatically if needed.
+
+PS4='+[$(date +%T)] '
+set -xeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BUILD_DIR="$SCRIPT_DIR/build"
+
+# A test run that was handed the built plugin sets CI_TEST_STAGE, and builds nothing.
+if [ -n "${CI_TEST_STAGE:-}" ]; then
+    echo "=== openmm: skipping build (CI_TEST_STAGE) ==="
+    exit 0
+fi
+
+# cupo is two directories up in every tree this runs in, with its headers in
+# include/ and its libraries in build/:
+#   1. A tree with cupo's run_build: built there, if they are not built yet
+#   2. The source tarball: pre-built
+#   3. A clone of the GitHub repository: pre-built, but not in git -- GitHub refuses
+#      files over 100 MiB, and libcupo.so is larger. They are on the release the
+#      clone's RELEASE_TAG names, by default the one for ../../VERSION, in the cupo
+#      tarball, whose build/ is unpacked into the clone's build/.
+CUPO="$SCRIPT_DIR/../.."
+CUPO_RUNTIME_DIR="$CUPO"
+CUPO_LIB="$CUPO/build"
+
+echo "=== Building openmm plugin ==="
+echo "  Source:  $SCRIPT_DIR"
+echo "  Build:   $BUILD_DIR"
+echo "  Cupo:    $CUPO_RUNTIME_DIR"
+
+if [ -f "$CUPO_LIB/libcupo.so" ] && [ -f "$CUPO_LIB/runtime_build.json" ]; then
+    echo "--- cupo runtime found at $CUPO_LIB, skipping build ---"
+elif [ -f "$CUPO/run_build" ]; then
+    echo "--- Building cupo runtime ---"
+    "$CUPO/run_build"
+else
+    # Neither built nor buildable here, so a clone: cupo's libraries come from the
+    # GitHub release the clone's RELEASE_TAG names, or else of ../../VERSION, of the
+    # repository the clone's origin remote names, with GITHUB_TOKEN through the API
+    # (the tree's fetch_cupo says which release, how and from where).
+    python3 "$CUPO/fetch_cupo"
+fi
+
+mkdir -p "$BUILD_DIR"
+
+CMAKE_ARGS=()
+if [ -n "${CUDA_ARCHITECTURES:-}" ]; then
+    CMAKE_ARGS+=(-DCMAKE_CUDA_ARCHITECTURES="$CUDA_ARCHITECTURES")
+fi
+# Each compile goes through timed-compile, which records how long the file took
+# (ci/lib/compile_timing.py), and then sccache.
+LAUNCHER=()
+TIMED_COMPILE="$(cd "$SCRIPT_DIR/../.." && pwd)/ci/scripts/timed-compile"
+if [ -x "$TIMED_COMPILE" ]; then
+    LAUNCHER+=("$TIMED_COMPILE")
+fi
+if [ -n "${USE_SCCACHE:-}" ] && command -v sccache &>/dev/null; then
+    LAUNCHER+=(sccache)
+fi
+if [ ${#LAUNCHER[@]} -gt 0 ]; then
+    LAUNCHER_LIST="$(IFS=';'; echo "${LAUNCHER[*]}")"
+    CMAKE_ARGS+=(-DCMAKE_C_COMPILER_LAUNCHER="$LAUNCHER_LIST")
+    CMAKE_ARGS+=(-DCMAKE_CXX_COMPILER_LAUNCHER="$LAUNCHER_LIST")
+    CMAKE_ARGS+=(-DCMAKE_CUDA_COMPILER_LAUNCHER="$LAUNCHER_LIST")
+fi
+# And each link, which no compiler launcher reaches, when the CI times them.
+if [ -x "$TIMED_COMPILE" ]; then
+    CMAKE_ARGS+=(-DCMAKE_PROJECT_INCLUDE="${TIMED_COMPILE%/*}/timed-link.cmake")
+fi
+
+OPENMM=/opt/openmm
+
+cmake -S "$SCRIPT_DIR" -B "$BUILD_DIR" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DOPENMM_INCLUDE_DIR="$OPENMM/include" \
+    -DOPENMM_CORE_LIBRARY="$OPENMM/lib/libOpenMM.so" \
+    -DOPENMM_CUDA_LIBRARY="$OPENMM/lib/plugins/libOpenMMCUDA.so" \
+    -DOPENMM_EXTRA_INCLUDE_DIRS="$OPENMM/include/openmm/cuda" \
+    -DCUPO_RUNTIME_DIR="$CUPO_RUNTIME_DIR" \
+    -DSWIG_EXECUTABLE="$OPENMM/bin/swig" \
+    "${CMAKE_ARGS[@]}"
+
+make -C "$BUILD_DIR" -j"$(nproc)"
+
+echo ""
+echo "=== Build complete ==="
+echo "  libOpenMMNvidia.so:     $BUILD_DIR/cpp/libOpenMMNvidia.so"
+echo "  libOpenMMNvidiaCUDA.so: $BUILD_DIR/cpp/platforms/cuda/libOpenMMNvidiaCUDA.so"
+echo "  _nvplugin.so:       $SCRIPT_DIR/cpp/swig/_nvplugin.so"
+
+# Populate python package directory for wheel building
+PKG="$SCRIPT_DIR/python/nv_openmm_plugin"
+mkdir -p "$PKG/lib"
+cp -f "$BUILD_DIR/cpp/libOpenMMNvidia.so" "$PKG/lib/"
+cp -f "$BUILD_DIR/cpp/platforms/cuda/libOpenMMNvidiaCUDA.so" "$PKG/lib/"
+# libcupo goes in under its SONAME, libcupo.so.<ABI>: the name the plugin's
+# libraries ask the loader for. One file with that name and no links, since a
+# wheel cannot hold a symlink. libcupo.so is the link to it (a library built
+# before the SONAME was versioned is a file, and keeps its name).
+if [ -f "$BUILD_DIR/libcupo.so" ]; then
+    CUPO_FROM="$BUILD_DIR"
+else
+    CUPO_FROM="$CUPO_LIB"
+fi
+CUPO_SONAME="$(basename "$(readlink "$CUPO_FROM/libcupo.so" || echo libcupo.so)")"
+rm -f "$PKG"/lib/libcupo.so "$PKG"/lib/libcupo.so.*
+cp -fL "$CUPO_FROM/$CUPO_SONAME" "$PKG/lib/$CUPO_SONAME"
+# Compact convolution is part of libcupo.so. Remove the separate backend left
+# by packages built before the libraries were unified.
+rm -f "$PKG/lib/libcupo_compact.so"
+cp -f "$SCRIPT_DIR/cpp/swig/_nvplugin.so" "$PKG/"
+cp -f "$SCRIPT_DIR/cpp/swig/nvplugin.py" "$PKG/"
+# Libcupo includes the standalone Lepton expression frontend. Preserve its
+# upstream notices alongside every redistributed copy of the runtime.
+mkdir -p "$PKG/notices"
+cp -f "$CUPO_LIB/third_party/LEPTON_NOTICE.txt" "$PKG/notices/"
+# Remove obsolete payloads from an earlier build in the same package directory.
+rm -f "$PKG/lib/libcupo_pair_expression.so" "$PKG/pair_expression_build.json"
+rm -f "$PKG/notices/Lepton-NOTICES.txt" "$PKG/notices/Lepton-UPSTREAM.txt"
+cp -f "$CUPO_LIB/third_party/"OpenMM-Bonded-*.txt "$PKG/notices/"
+# The licensing overview, Apache and cupo license texts, and third-party notices.
+# THIRD-PARTY.txt is the name NVIDIA's guideline gives the notices file. In git it
+# is a symlink to NOTICE; -L copies NOTICE's text, as a wheel cannot hold a symlink.
+cp -fL "$SCRIPT_DIR/NOTICE" "$SCRIPT_DIR/THIRD-PARTY.txt" "$SCRIPT_DIR/LICENSE" \
+    "$SCRIPT_DIR/LICENSE-apache.txt" "$SCRIPT_DIR/LICENSE-cupo.txt" \
+    "$PKG/notices/"
+python3 "$SCRIPT_DIR/write_package_metadata.py" --runtime-dir "$CUPO_LIB" --plugin-root "$SCRIPT_DIR"

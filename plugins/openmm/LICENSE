@@ -1,0 +1,49 @@
+# Licensing
+
+The plugin source (`cpp/`, `python/`, `samples/`, under `plugins/openmm/` in the
+source tree), and the source tree's `Dockerfile` and `run_docker`, are released
+under Apache 2.0, with component-specific licensing described below. See
+[LICENSE-apache.txt](LICENSE-apache.txt) for the full text.
+
+The components in this distribution use the following licenses:
+
+| Component | Path | License |
+|---|---|---|
+| cupo runtime and API headers | `include/cupo/` and `build/libcupo.so*` in the source and runtime tarballs; `nv_openmm_plugin/lib/libcupo.so.<ABI>` in the wheel and release-channel conda packages | NVIDIA Software License Agreement (proprietary), see [LICENSE-cupo.txt](LICENSE-cupo.txt) |
+| LTO-IR math objects and headers | `build/ltoir/{standard,fast_math}/cupo_math.cu.o` and `include/cupo/math/` in the source and runtime tarballs | NVIDIA Software License Agreement (proprietary), see [LICENSE-cupo.txt](LICENSE-cupo.txt) |
+| Runtime CMake packages | `build/cmake/CupoRuntime/` and `share/cmake/CupoConvolution/` in the runtime tarball | NVIDIA Software License Agreement (proprietary), see [LICENSE-cupo.txt](LICENSE-cupo.txt) |
+| LTO-IR examples and guides | `samples/common.sh`, `samples/ltoir-usage/` (including `usage.cu` and the reference generator), `docs/ltoir.md` and `docs/ltoir-usage.md` at the source tree's root | Apache 2.0, see [LICENSE-apache.txt](LICENSE-apache.txt) |
+| LJ tail helper | `plugins/openmm/cpp/openmmapi/src/lj_tail.hpp` | Apache 2.0, see [LICENSE-apache.txt](LICENSE-apache.txt) |
+| fltflt.hpp | `plugins/openmm/cpp/platforms/cuda/src/integrator/fltflt.hpp` in the source tree | BSD-3-Clause |
+
+The third-party software in this distribution is listed, with its copyright and
+license, in [NOTICE](NOTICE). THIRD-PARTY.txt has the same text. The plugin links
+dynamically to OpenMM, whose CUDA platform is under the GNU Lesser General Public License; OpenMM is not
+included and is installed separately.
+
+The source distribution and GitHub tree carry identical copies of this overview,
+[LICENSE-apache.txt](LICENSE-apache.txt), [LICENSE-cupo.txt](LICENSE-cupo.txt),
+[NOTICE](NOTICE), and [THIRD-PARTY.txt](THIRD-PARTY.txt) at the repository root and
+under `plugins/openmm/`, so the plugin directory can also be packaged on its own.
+The wheel and conda packages also include these files.
+
+### What the packages bundle, and what they retrieve
+
+The wheel and the release-channel conda package **bundle** the cuPotential runtime
+(`nv_openmm_plugin/lib/libcupo.so.<ABI>`), under the NVIDIA Software License Agreement in
+[LICENSE-cupo.txt](LICENSE-cupo.txt). It is part of the distribution, not an
+external material. The conda-forge plugin instead depends on the separate
+`libcupo` package, which installs the runtime under the environment's `lib/`.
+
+Separately, the install and build steps retrieve materials that are not
+distributed with this software: when you build from a clone of the repository,
+`run_build` and the LTO-IR sample's `run` call `fetch_cupo`, which automatically
+downloads the proprietary cuPotential runtime from the GitHub release, and the installation environment
+fetches separately licensed dependencies, such as OpenMM, the CUDA libraries and
+Python packages, from their own sources. The tests and the `solvated_systems`
+sample read OpenMM's two benchmark systems, `apoa1.pdb` and
+`5dfr_solv-cube_equil.pdb`, from your OpenMM installation, or download them from
+OpenMM's GitHub repository when they are absent; these files are not distributed
+with cuPotential. The notice below covers those retrieved materials only.
+
+**NOTICE AND DISCLAIMER: This software automatically retrieves, accesses or interacts with external materials.  Those retrieved materials are not distributed with this software and are governed solely by separate terms, conditions and licenses.  You are solely responsible for finding, reviewing and complying with all applicable terms, conditions, and licenses, and for verifying the security, integrity and suitability of any retrieved materials for your specific use case. This software is provided "AS IS", without warranty of any kind. The author makes no representations or warranties regarding any retrieved materials, and assumes no liability for any losses, damages, liabilities or legal consequences from your use or inability to use this software or any retrieved materials. Use this software and the retrieved materials at your own risk.**

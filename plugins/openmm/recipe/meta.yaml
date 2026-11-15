@@ -1,0 +1,84 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+{% set version = environ['NV_OPENMM_PLUGIN_VERSION'] %}
+{% set runtime = load_file_data('../python/nv_openmm_plugin/runtime_build.json', from_recipe_dir=True) %}
+
+package:
+  name: nv-openmm-plugin
+  version: {{ version }}
+
+source:
+  path: ..
+
+build:
+  number: 0
+  # Drop the `python` run_export and state the constraint ourselves.
+  #
+  # conda-forge's python-3.12.14-h5f976f7_2_cpython exports a dependency on a
+  # variant that it does not publish:
+  #
+  #     python 3.12.14 _2_cpython   weak: [python_abi 3.12.* *_cp312,
+  #                                        python 3.12.* *_debug_cpython]
+  #     python 3.12.14 _1_cpython   weak: [python_abi 3.12.* *_cp312]
+  #     python 3.12.14 _0_cpython   weak: [python_abi 3.12.* *_cp312]
+  #
+  # Only build _2 carries the second line, and no *_debug_cpython build of 3.12
+  # exists in the channel. Anything compiled against that python inherits an
+  # unsatisfiable requirement, so `micromamba create -c conda-forge
+  # nv-openmm-plugin` fails to solve -- which is how this arrived, as a failed
+  # install test with the plugin itself perfectly healthy.
+  #
+  # Ignoring by exported NAME rather than by source package: `python` is the one
+  # bad export, and python_abi -- the pin that actually matters, since we ship a
+  # compiled cp312 extension -- keeps coming through. The version bound the
+  # export would have supplied is restated in `run:` below.
+  #
+  # Upstream bug, presumably gone in a _3 build, at which point this is harmless
+  # but no longer needed.
+  ignore_run_exports:
+    - python
+
+requirements:
+  host:
+    - python ==3.12.*
+  # The CUDA entries are NOT redundant with openmm's own. libcupo.so links cudart
+  # and cuFFT itself, and cuFFT dlopens a JIT toolchain -- libnvJitLink and nvrtc --
+  # to link the LTO callback KSpace registers. Those two are in nobody's NEEDED
+  # list, so ldd shows nothing missing and a solver has no reason to pull them;
+  # cuFFT reports their absence as CUFFT_MISSING_DEPENDENCY (17) at plan time,
+  # deep into a run. Naming all four here is what makes the env self-sufficient
+  # instead of relying on openmm to have dragged the right ones in. cuda-version
+  # is the cap: our binaries carry libcudart.so.13/libcufft.so.12 sonames, so a
+  # CUDA major/minor must also match the embedded expression IR and NVRTC.
+  # OpenMM is capped to the series these binaries were compiled against, not left
+  # open-ended. Its shared library is plain `libOpenMM.so` -- no version in the
+  # soname -- so the loader will happily bind our plugin to any OpenMM the solver
+  # feels like installing, across an ABI that changes between minor releases. With
+  # `>=8.4` an install test resolved openmm 8.6.0 and got that far without a
+  # murmur. Bump this when the plugin is rebuilt against a newer OpenMM, together
+  # with the wheel's cap in write_package_metadata.py.
+  run:
+    # >=3.12,<3.13 rather than >=3.10: this ships a compiled extension built
+    # against the host python above, so it is ABI-bound to that series. The
+    # ignored run_export used to supply this bound; with it ignored, it has to
+    # be stated. python_abi still arrives by run_export and pins the ABI itself.
+    - python >=3.12,<3.13.0a0
+    - openmm >=8.4,<8.5.0a0
+    - cuda-version >={{ runtime['cuda_min'] }},<{{ runtime['cuda_max'] }}
+    - cuda-cudart >={{ runtime['cuda_min'] }},<{{ runtime['cuda_max'] }}
+    - libcufft >={{ runtime['cufft_min'] }},<{{ runtime['cufft_max'] }}
+    - libnvjitlink >={{ runtime['cuda_min'] }},<{{ runtime['cuda_max'] }}
+    - cuda-nvrtc >={{ runtime['cuda_min'] }},<{{ runtime['cuda_max'] }}
+
+about:
+  home: https://developer.nvidia.com/
+  license: Apache-2.0 AND LicenseRef-NvidiaProprietary AND BSD-3-Clause AND MIT
+  license_file:
+    - LICENSE
+    - LICENSE-apache.txt
+    - LICENSE-cupo.txt
+    - NOTICE
+    - THIRD-PARTY.txt
+    - python/nv_openmm_plugin/notices/OpenMM-Bonded-MIT.txt
+  summary: NVIDIA GPU-accelerated nonbonded plugin for OpenMM

@@ -1,0 +1,419 @@
+#!/usr/bin/env python3
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+"""Download cupo's libraries for a clone of the GitHub repository, which does not
+carry them: GitHub refuses files over 100 MiB, and libcupo.so is larger. They are on
+the GitHub release of the clone's VERSION, in the cupo tarball. Its build/ holds
+the runtime, LTO-IR objects and runtime_build.json with their build metadata,
+and is unpacked into the clone. Two scripts call this when the tree has
+neither cupo's libraries nor cupo's sources: plugins/openmm/run_build, and the
+LTO-IR sample's run, through samples/common.sh.
+
+Usage: ./fetch_cupo [--tag TAG] [<the tree's root>]
+
+The tree is the one this script is in, at its root, symlinks followed, unless
+another root is given.
+
+Which release, the first of:
+  - --tag TAG;
+  - CUPO_RELEASE_TAG=<tag>;
+  - the file RELEASE_TAG at the tree's root, which the GitHub release adds to
+    the commit it publishes: one line, v<VERSION> or v<VERSION>-<suffix>, the
+    tag of that release. Any other content is an error, which says so;
+  - v<VERSION>, the tree's VERSION: a tree with no RELEASE_TAG, such as the
+    source tarball.
+It says which tag it took, and why. A clone of NVIDIA/cuPotential gets
+v<VERSION>, the tag its RELEASE_TAG names.
+
+Where from:
+  - that release of the GitHub repository the clone's origin remote names
+    (owner/name), so that a clone of a fork or of another copy of the repository
+    gets that repository's release. If that repository has no such release, or the
+    tree has no origin remote, the release of NVIDIA/cuPotential, saying so:
+    under the same tag when --tag or CUPO_RELEASE_TAG named it, and under
+    v<VERSION> otherwise, the one tag NVIDIA/cuPotential releases under.
+  - CUPO_REPOSITORY=<owner/name>: that repository's release, and no other.
+  - CUPO_RELEASE_URL=<url>: the files at that URL, a release's download URL or any
+    directory with the same files, file:// included.
+
+How:
+  - With GITHUB_TOKEN (or GH_TOKEN) set: through the GitHub API, with the token,
+    which a private repository's release needs. The token is sent in a header, to
+    GitHub only, and never printed.
+  - Without: from the release's plain download URLs, as anyone can for a public
+    repository; no API, whose unauthenticated rate limit is per IP and easily
+    shared.
+
+The cupo tarball's name carries the CUDA version, the architectures and the commit
+it was built for, so it is read from the release's SHA256SUMS, which lists every
+file of the release with its checksum. The tarball is checked against that checksum
+before anything of it lands in the tree.
+"""
+import hashlib
+import json
+import os
+import pathlib
+import re
+import shutil
+import sys
+import tarfile
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
+DEFAULT_REPOSITORY = "NVIDIA/cuPotential"
+API = "https://api.github.com"
+DOWNLOAD = "https://github.com"
+RETRIES = 3
+TIMEOUT = 120
+# The tree this script belongs to, where it unpacks by default: the directory it
+# is in, the tree's root.
+TREE = pathlib.Path(__file__).resolve().parent
+
+
+class Failure(Exception):
+    """A download that cannot succeed, with the reason, for the user."""
+
+
+class NoRelease(Failure):
+    """The repository has no release with this tag (or none this request may see)."""
+
+
+def token():
+    return os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or ""
+
+
+def origin_repository(root):
+    """owner/name of the GitHub repository the tree's origin remote names, read from
+    .git/config (the Docker environment has no git); None if there is none."""
+    git = pathlib.Path(root) / ".git"
+    if git.is_file():          # a worktree or submodule: "gitdir: <path>"
+        m = re.match(r"gitdir:\s*(.+)", git.read_text())
+        if not m:
+            return None
+        git = (git.parent / m.group(1).strip()).resolve()
+        common = git / "commondir"
+        if common.is_file():
+            git = (git / common.read_text().strip()).resolve()
+    config = git / "config"
+    if not config.is_file():
+        return None
+    section, url = None, None
+    for line in config.read_text().splitlines():
+        line = line.strip()
+        m = re.match(r'\[\s*(\S+)(?:\s+"([^"]*)")?\s*\]', line)
+        if m:
+            section = (m.group(1).lower(), m.group(2))
+            continue
+        m = re.match(r"url\s*=\s*(.+)", line)
+        if m and section == ("remote", "origin"):
+            url = m.group(1).strip()
+            break
+    if not url:
+        return None
+    m = re.match(r"(?:https?://(?:[^@/]+@)?github\.com/|(?:ssh://)?git@github\.com[:/])"
+                 r"([^/]+)/([^/]+?)(?:\.git)?/?$", url)
+    return "%s/%s" % (m.group(1), m.group(2)) if m else None
+
+
+# The file the GitHub release adds at the root of the commit it publishes: one
+# line, the tag of the release that commit belongs to. The source tarball has none.
+RELEASE_TAG_FILE = "RELEASE_TAG"
+
+
+def release_tag_file(root, version):
+    """(the tag RELEASE_TAG at the tree's root names, why), or (None, why) when the
+    tree has no such file. Raises Failure for a file that is not one line naming
+    v<VERSION> or v<VERSION>-<suffix>."""
+    path = pathlib.Path(root) / RELEASE_TAG_FILE
+    if not path.is_file():
+        return None, "no %s file in the tree" % RELEASE_TAG_FILE
+    text = path.read_text()
+    lines = text.splitlines()
+    plain = "v%s" % version
+    if (len(lines) != 1 or text not in (lines[0], lines[0] + "\n")
+            or not re.fullmatch(re.escape(plain) + r"(-[0-9A-Za-z][0-9A-Za-z.+-]*)?",
+                                lines[0])):
+        raise Failure("%s does not name a release of this tree: it must be one line, "
+                      "%s or %s-<suffix>, and holds %r" % (path, plain, plain, text[:200]))
+    return lines[0], "the tree's %s file" % RELEASE_TAG_FILE
+
+
+class _NoAuthElsewhere(urllib.request.HTTPRedirectHandler):
+    """Follow a redirect without the token when it leaves the host that was asked:
+    GitHub sends a release file's download on to its storage, which must not get
+    the token, and refuses a request that carries two kinds of authorization."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new is not None and urllib.parse.urlsplit(newurl).netloc != \
+                urllib.parse.urlsplit(req.full_url).netloc:
+            new.remove_header("Authorization")
+            new.headers.pop("Authorization", None)
+            new.unredirected_hdrs.pop("Authorization", None)
+        return new
+
+
+_OPENER = urllib.request.build_opener(_NoAuthElsewhere)
+
+MIB = 1 << 20
+# Without a size to take a share of, a line each this many bytes.
+PROGRESS_EVERY = 64 * MIB
+
+
+class Progress:
+    """How much of the file `name` has arrived, printed as it arrives. On a
+    terminal, one line that a carriage return rewrites at each percent. Otherwise,
+    as in a CI log, a line at each tenth of the file, or each PROGRESS_EVERY bytes
+    when its size is not known."""
+
+    def __init__(self, name, out=None):
+        self.name, self.out = name, out or sys.stdout
+        self.tty = self.out.isatty()
+        self.total, self.mark = None, 0
+
+    def _mib(self, n):
+        return "%.0f MiB" % (n / MIB) if n >= MIB else "%d bytes" % n
+
+    def start(self, total):
+        self.total, self.mark = total, 0
+        size = self._mib(total) if total else "size not known"
+        self.out.write("--- downloading %s, %s ---\n" % (self.name, size))
+        self.out.flush()
+
+    def _line(self, done):
+        if self.total:
+            return "    %s: %d%%, %s of %s" % (self.name, 100 * done // self.total,
+                                             self._mib(done), self._mib(self.total))
+        return "    %s: %s" % (self.name, self._mib(done))
+
+    def update(self, done):
+        if self.total:
+            step = 100 * done // self.total
+            step = step if self.tty else step // 10 * 10
+        else:
+            step = done // PROGRESS_EVERY
+        if step <= self.mark:
+            return
+        self.mark = step
+        if self.tty:
+            self.out.write("\r" + self._line(done))
+        else:
+            self.out.write(self._line(done) + "\n")
+        self.out.flush()
+
+    def end(self, done):
+        if self.tty:
+            self.out.write("\r%s\n" % self._line(done))
+        elif not self.total or self.mark < 100:
+            self.out.write(self._line(done) + "\n")
+        self.out.flush()
+
+
+def _get(url, headers=None, dest=None, progress=None):
+    """The body of `url` (bytes), or written to `dest`, with `progress` told how
+    much has arrived. Retries what may pass on a second try; raises NoRelease on a
+    404 and Failure on anything else."""
+    for attempt in range(1, RETRIES + 1):
+        req = urllib.request.Request(url, headers=headers or {})
+        try:
+            with _OPENER.open(req, timeout=TIMEOUT) as r:
+                if dest is None:
+                    return r.read()
+                length = r.headers.get("Content-Length", "")
+                if progress:
+                    progress.start(int(length) if length.isdigit() else None)
+                done = 0
+                with open(dest, "wb") as f:
+                    for block in iter(lambda: r.read(MIB), b""):
+                        f.write(block)
+                        done += len(block)
+                        if progress:
+                            progress.update(done)
+                if progress:
+                    progress.end(done)
+                return None
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                raise NoRelease("%s: HTTP 404" % url)
+            if e.code in (401, 403):
+                raise Failure("%s: HTTP %d, %s" % (url, e.code, "the token was refused"
+                              if "Authorization" in (headers or {}) else "refused"))
+            if e.code < 500 or attempt == RETRIES:
+                raise Failure("%s: HTTP %d" % (url, e.code))
+        except FileNotFoundError:
+            raise NoRelease("%s: no such file" % url)
+        except (urllib.error.URLError, OSError) as e:
+            if attempt == RETRIES:
+                raise Failure("%s: %s" % (url, getattr(e, "reason", e)))
+        time.sleep(2 * attempt)
+
+
+class PlainRelease:
+    """A release's files at their download URLs, or any directory of them."""
+
+    def __init__(self, url):
+        self.url = url.rstrip("/")
+        self.where = self.url
+
+    def get(self, name, dest=None, progress=None):
+        return _get("%s/%s" % (self.url, name), dest=dest, progress=progress)
+
+
+class ApiRelease:
+    """A release's files through the GitHub API, with the token."""
+
+    def __init__(self, repository, tag, secret):
+        self.where = "%s release %s, through the GitHub API with a token" % (repository, tag)
+        self._auth = {"Authorization": "Bearer %s" % secret}
+        url = "%s/repos/%s/releases/tags/%s" % (API, repository, tag)
+        release = json.loads(_get(url, dict(self._auth, Accept="application/vnd.github+json")))
+        self._assets = {a["name"]: a["url"] for a in release.get("assets", [])}
+
+    def get(self, name, dest=None, progress=None):
+        if name not in self._assets:
+            raise Failure("%s has no file %s" % (self.where, name))
+        return _get(self._assets[name], dict(self._auth, Accept="application/octet-stream"),
+                    dest=dest, progress=progress)
+
+
+def release_for(repository, tag):
+    secret = token()
+    if secret:
+        return ApiRelease(repository, tag, secret)
+    return PlainRelease("%s/%s/releases/download/%s" % (DOWNLOAD, repository, tag))
+
+
+def cupo_tarball_name(sums, version):
+    """The cupo tarball's name in SHA256SUMS: the plugin's files start with "cupo-"
+    too, and only the cupo tarball starts with "cupo-<version>+"."""
+    m = re.search(r"^([0-9a-f]{64})\s+\*?(cupo-%s\+\S*\.tar\.gz)$" % re.escape(version),
+                  sums, re.M)
+    if not m:
+        raise Failure("no cupo-%s+*.tar.gz in SHA256SUMS" % version)
+    return m.group(2), m.group(1)
+
+
+def sha256(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def fetch(release, version, root):
+    """Download and check the cupo tarball, then unpack its build/ into `root`.
+    Returns the tarball's name."""
+    sums = release.get("SHA256SUMS").decode()
+    name, expected = cupo_tarball_name(sums, version)
+    # A scratch directory, so that nothing lands in the tree unless it checks out.
+    scratch = pathlib.Path(root) / ".cupo-fetch"
+    shutil.rmtree(scratch, ignore_errors=True)
+    scratch.mkdir()
+    try:
+        tarball = scratch / name
+        try:
+            release.get(name, dest=tarball, progress=Progress(name))
+        except NoRelease as e:   # the release is there, and a file it lists is not
+            raise Failure(str(e))
+        print("--- checking %s against SHA256SUMS ---" % name, flush=True)
+        got = sha256(tarball)
+        if got != expected:
+            raise Failure("%s does not match its checksum in SHA256SUMS: sha256 %s, "
+                          "expected %s" % (name, got, expected))
+        print("--- %s: sha256 matches SHA256SUMS ---" % name, flush=True)
+        top = name[:-len(".tar.gz")]
+        with tarfile.open(tarball) as tar:
+            # Restore the runtime and LTO-IR objects, plus the compiled compact
+            # architectures used by the LTO-IR sample. The clone already carries
+            # its headers, sample sources, documentation and reference data.
+            members = []
+            for m in tar.getmembers():
+                if m.name.startswith(top + "/build/") or m.name == top + "/build":
+                    m.name = m.name[len(top) + 1:]
+                    members.append(m)
+            print("--- unpacking build/ into %s ---" % root, flush=True)
+            kw = {"filter": "data"} if hasattr(tarfile, "data_filter") else {}
+            tar.extractall(root, members=members, **kw)
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+    build = pathlib.Path(root) / "build"
+    if not (build / "libcupo.so").is_file() or not (build / "runtime_build.json").is_file():
+        raise Failure("%s has no build/libcupo.so or build/runtime_build.json" % name)
+    files = sum(1 for m in members if m.isfile())
+    print("--- installed cupo's libraries: %d files of %s, in %s ---"
+          % (files, name, root), flush=True)
+    return name
+
+
+def main(argv):
+    argv = list(argv)
+    tag, why = None, None
+    if argv[:1] == ["--tag"] and len(argv) >= 2:
+        tag, why = argv[1], "--tag"
+        argv = argv[2:]
+    if len(argv) > 1 or argv[:1] and argv[0].startswith("-"):
+        raise SystemExit("usage: ./fetch_cupo [--tag TAG] [<the tree's root>]")
+    root = pathlib.Path(argv[0] if argv else TREE).resolve()
+    version = (root / "VERSION").read_text().strip()
+    plain = "v%s" % version
+    named = bool(tag)
+    if not tag and os.environ.get("CUPO_RELEASE_TAG"):
+        tag, why, named = os.environ["CUPO_RELEASE_TAG"], "CUPO_RELEASE_TAG", True
+    try:
+        if not tag:
+            tag, why = release_tag_file(root, version)
+            if not tag:
+                tag, why = plain, "the tree's VERSION (%s)" % why
+        if not os.environ.get("CUPO_RELEASE_URL"):
+            print("--- release %s: %s ---" % (tag, why), flush=True)
+        if os.environ.get("CUPO_RELEASE_URL"):
+            candidates = [("CUPO_RELEASE_URL", None,
+                           lambda: PlainRelease(os.environ["CUPO_RELEASE_URL"]))]
+        else:
+            chosen = os.environ.get("CUPO_REPOSITORY")
+            repos = [chosen] if chosen else []
+            if not chosen:
+                origin = origin_repository(root)
+                if origin and origin.lower() != DEFAULT_REPOSITORY.lower():
+                    repos.append(origin)
+                elif not origin:
+                    print("--- no GitHub origin remote in %s: cupo's libraries come from "
+                          "%s ---" % (root, DEFAULT_REPOSITORY), flush=True)
+                repos.append(DEFAULT_REPOSITORY)
+            # The fallback to NVIDIA/cuPotential is under v<VERSION>, the only tag it
+            # releases under, unless the tag was named.
+            tags = [tag if named or n == 0 else plain for n in range(len(repos))]
+            candidates = [(r, t, lambda r=r, t=t: release_for(r, t))
+                          for r, t in zip(repos, tags)]
+        for i, (what, this_tag, make) in enumerate(candidates):
+            try:
+                release = make()
+                print("--- fetching cupo's libraries from %s ---" % release.where, flush=True)
+                fetch(release, version, root)
+                return 0
+            except NoRelease as e:
+                # Without a token, a private repository's release answers 404 too.
+                seen = "" if token() else " to download without a token"
+                if i + 1 < len(candidates):
+                    after = candidates[i + 1]
+                    print("--- %s has no release %s%s (%s); falling back to %s%s ---"
+                          % (what, this_tag, seen, e, after[0],
+                             "" if after[1] == this_tag else ", release %s" % after[1]),
+                          flush=True)
+                    continue
+                hint = ("" if token() else
+                        " If %s is private, set GITHUB_TOKEN to a token with read "
+                        "access to it." % " or ".join(w for w, _, _ in candidates))
+                raise Failure("no release %s with cupo's libraries%s: %s.%s"
+                              % (this_tag or tag, seen, e, hint))
+    except Failure as e:
+        print("ERROR: fetching cupo's libraries: %s" % e, file=sys.stderr)
+        return 1
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -1,0 +1,41 @@
+{
+  "seed": 20261025,
+  "globals": {
+    "lambda_bonds": 0.5,
+    "lambda_angles": 0.5,
+    "lambda_torsions": 0.5,
+    "lambda_electrostatics_core": 0.5,
+    "lambda_sterics_core": 0.5,
+    "lambda_electrostatics_delete": 1.0,
+    "lambda_electrostatics_insert": 0.0,
+    "softcore_alpha": 0.85,
+    "lambda_sterics_insert": 0.75,
+    "lambda_sterics_delete": 0.25
+  },
+  "initial": {
+    "energy_kj_mol": -274702.4481769978,
+    "max_force_kj_mol_nm": 173841.77416723577
+  },
+  "cutoff_nm": 0.9,
+  "switching_distance_nm": 0.8,
+  "minimized": {
+    "energy_kj_mol": -538496.0686133779,
+    "max_force_kj_mol_nm": 2465.731834075578
+  },
+  "warmup_5ps": {
+    "energy_kj_mol": -439791.69335155893,
+    "max_force_kj_mol_nm": 4932.523110446268
+  },
+  "final_25ps": {
+    "energy_kj_mol": -438610.2493995349,
+    "max_force_kj_mol_nm": 4728.526006690515
+  },
+  "openmm_version": "8.4",
+  "platform": "CUDA",
+  "platform_properties": {
+    "Precision": "mixed",
+    "DeterministicForces": "true",
+    "DeviceIndex": "0"
+  },
+  "elapsed_seconds": 9.403337222000118
+}

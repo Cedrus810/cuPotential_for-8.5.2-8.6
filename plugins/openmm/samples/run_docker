@@ -1,0 +1,193 @@
+#!/bin/bash
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# run_docker — Run commands inside a CUDA container for the OpenMM plugin.
+# Auto-detects whether invoked from the tarball root or from samples/.
+#
+# Usage (source tarball):
+#   ./run_docker plugins/openmm/run_build                    # build the plugin
+#   ./run_docker bash                                        # shell
+#   ./plugins/openmm/samples/run_docker ./solvated_systems/run  # a sample, after the build
+#
+# Usage (binary tarball):
+#   ./samples/run_docker ./solvated_systems/run
+#   ./samples/run_docker bash
+#
+# With no command it runs the solvated_systems sample, which is what the bare
+# invocation used to do when this script lived inside that sample.
+#
+# Environment:
+#   NV_GPU       which GPUs the container sees, as for docker --gpus device=: all (the
+#                default), or GPUs by index or UUID, comma-separated
+#   CUPO_DOCKER_ADD_DEVICE_NODES=1
+#                also name the GPUs' device nodes with --device, so that the container
+#                keeps its GPUs when the host runs systemctl daemon-reload
+#                (add_gpu_device_nodes)
+#   CUPO_ALLOW_UNLOCKED_CLOCKS, CUPO_TEST_INSTALLED
+#                passed on to the plugin's tests (plugins/openmm/tests/README.md)
+#   GITHUB_TOKEN, GH_TOKEN
+#                passed on to run_build and the LTO-IR sample, which download cupo's
+#                libraries for a clone of the GitHub repository with it (fetch_cupo)
+#
+# The container may lock the GPU clocks, which the plugin's benchmarks do: it has
+# the SYS_ADMIN capability that takes.
+#
+# At the source tarball's root this is also what ./run_test enters the container
+# with, so it passes on the variables the stage runner hands its stages over in
+# (ci/lib/stages.py).
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(pwd)"
+
+# Mount the tarball root: a sample's run looks there for the wheel or conda
+# package, so mounting only samples/ would hide it.
+if [[ "$(basename "$SCRIPT_DIR")" == "samples" ]]; then
+    TARBALL_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+else
+    TARBALL_ROOT="$SCRIPT_DIR"
+fi
+
+if [ -n "${PREBUILT_IMAGE:-}" ]; then
+    IMAGE_TAG="$PREBUILT_IMAGE"
+else
+    IMAGE_TAG="cupo-openmm-plugin"
+    # Dockerfile at tarball root (tarball) or samples/Dockerfile symlink (in-tree)
+    if [ -f "$TARBALL_ROOT/Dockerfile" ]; then
+        DOCKERFILE="$TARBALL_ROOT/Dockerfile"
+    elif [ -f "$SCRIPT_DIR/Dockerfile" ]; then
+        DOCKERFILE="$(readlink -f "$SCRIPT_DIR/Dockerfile")"
+    else
+        echo "ERROR: Dockerfile not found" >&2
+        exit 1
+    fi
+    # The Dockerfile takes its CUDA version from the .cuda-version beside it.
+    CUDA_VERSION=$(cat "$(dirname "$DOCKERFILE")/.cuda-version")
+    docker build -t "$IMAGE_TAG" --build-arg CUDA_VERSION="$CUDA_VERSION" \
+        -f "$DOCKERFILE" "$(dirname "$DOCKERFILE")" >/dev/null
+fi
+
+# No command: run the solvated_systems sample, which is what a bare invocation did
+# when this script lived inside that sample. Three spellings, from where the script
+# can be: samples/ itself, the root of a wheel or conda tarball, which holds
+# samples/, and the root of the source tarball, which holds the plugin under
+# plugins/openmm.
+if [[ "$(basename "$SCRIPT_DIR")" == "samples" ]]; then
+    CMD=("${@:-./solvated_systems/run}")
+elif [ -d "$SCRIPT_DIR/plugins/openmm/samples" ]; then
+    CMD=("${@:-./plugins/openmm/samples/solvated_systems/run}")
+else
+    CMD=("${@:-./samples/solvated_systems/run}")
+fi
+
+TTY_FLAG=""
+if [ -t 0 ]; then TTY_FLAG="-it"; fi
+
+args=(
+    --rm $TTY_FLAG
+    # The quotes inside are docker's: without them it reads the comma in
+    # NV_GPU=0,1 as the start of another option and fails with "cannot set both
+    # Count and DeviceIDs".
+    --gpus "\"device=${NV_GPU:-all}\""
+    --ipc=host
+    -u "$(id -u):$(id -g)"
+    -e HOME=/tmp/home
+    -v "$TARBALL_ROOT":"$TARBALL_ROOT"
+    -w "$SCRIPT_DIR"
+    # The stages tell the dev container from the host by this (ci/lib/stages.py
+    # here()), when the source tarball's ./run_test is run in it.
+    -e CUPO_DEV_CONTAINER=1
+)
+# Where run_build and the LTO-IR sample fetch cupo's libraries from, in a clone of
+# the GitHub repository, when they are told to look somewhere else (see fetch_cupo).
+for v in CUPO_REPOSITORY CUPO_RELEASE_TAG CUPO_RELEASE_URL CUDA_ARCHITECTURES; do
+    if [ -n "${!v:-}" ]; then args+=(-e "$v=${!v}"); fi
+done
+# What ./run_test tells the run of itself it starts in here: which stages
+# (STAGES), which run they belong to (CUPO_RUN_ID) and the commit they are of
+# (COMMIT_SHA_SHORT; the container has no git).
+for v in STAGES CUPO_RUN_ID COMMIT_SHA_SHORT; do
+    if [ -n "${!v:-}" ]; then args+=(-e "$v=${!v}"); fi
+done
+for v in CUPO_ALLOW_UNLOCKED_CLOCKS CUPO_TEST_INSTALLED; do
+    if [ -n "${!v:-}" ]; then args+=(-e "$v=${!v}"); fi
+done
+# A token for run_build and the LTO-IR sample to download cupo's libraries through
+# the GitHub API, which a private repository's release needs (fetch_cupo). Passed by
+# name, so that its value is not on docker's command line.
+for v in GITHUB_TOKEN GH_TOKEN; do
+    if [ -n "${!v:-}" ]; then args+=(-e "$v"); fi
+done
+args+=(--cap-add=SYS_ADMIN)
+
+# add_gpu_device_nodes GPUS: add to args a --device for each device node that
+# --gpus "device=GPUS" gives the container. --gpus alone has the NVIDIA Container
+# Toolkit add the nodes without docker knowing of them. On a host whose docker
+# uses the systemd cgroup driver, a `systemctl daemon-reload` rewrites the
+# container's cgroup from what docker knows, and the container loses its GPUs in
+# the middle of the run: "Failed to initialize NVML: Unknown Error" from
+# nvidia-smi, "No compatible CUDA device is available" from OpenMM. Nodes given
+# with --device as well are kept. This is NVIDIA's workaround, on the toolkit's
+# troubleshooting page ("Containers losing access to GPUs with error: Failed to
+# initialize NVML: Unknown Error"):
+# https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/troubleshooting.html
+#
+# GPUS is all, or GPUs by index or UUID, comma-separated, as NV_GPU is. A GPU's
+# node is /dev/nvidiaN, N its minor number, which is not always its nvidia-smi
+# index; nvidia-smi -q says it. For all, the nodes are those of the GPUs nvidia-smi
+# lists here, not every /dev/nvidiaN: in a Slurm job, nvidia-smi lists only the
+# job's GPUs and --gpus gives the container only those, while /dev has a node for
+# every GPU in the machine, and the container sees each GPU it is given a node
+# of. When nvidia-smi cannot say, this adds nothing and warns: the container then
+# has its GPUs by --gpus only.
+# Only CUPO_DOCKER_ADD_DEVICE_NODES=1 does any of this. Without it the container
+# gets its GPUs by --gpus alone, and nvidia-smi is not run.
+add_gpu_device_nodes() {
+    local dev=/dev gpus=$1 nodes=() node gpu gpu_list query minor minors
+    [ "${CUPO_DOCKER_ADD_DEVICE_NODES:-}" = 1 ] || return 0
+    for node in nvidiactl nvidia-uvm nvidia-uvm-tools nvidia-modeset; do
+        if [ -e "$dev/$node" ]; then nodes+=("$node"); fi
+    done
+    IFS=, read -ra gpu_list <<< "$gpus"
+    for gpu in "${gpu_list[@]}"; do
+        if [ "$gpu" = all ]; then query=(-q); else query=(-i "$gpu" -q); fi
+        minors=$(nvidia-smi "${query[@]}" 2>/dev/null |
+                 sed -n 's/^ *Minor Number *: *\([0-9][0-9]*\) *$/\1/p') || true
+        for minor in ${minors:-none}; do
+            if [ ! -e "$dev/nvidia$minor" ]; then
+                echo "run_docker: no device node found for GPU $gpu (nvidia-smi ${query[*]});" \
+                     "the container may lose its GPUs if the host runs systemctl daemon-reload." \
+                     "Unset CUPO_DOCKER_ADD_DEVICE_NODES to skip this lookup." >&2
+                return
+            fi
+            nodes+=("nvidia$minor")
+        done
+    done
+    for node in "${nodes[@]}"; do args+=(--device "/dev/$node"); done
+}
+add_gpu_device_nodes "${NV_GPU:-all}"
+
+# The container runs as this user, with the host's /etc/passwd and /etc/group. Where
+# the account comes from a directory service, such as LDAP, those files do not have
+# it and only getent knows it; sudo, which the benchmarks lock the GPU clocks with,
+# refuses a user it cannot find ("you do not exist in the passwd database"). Then the
+# container gets copies with this user and group added, .run_docker_passwd and
+# .run_docker_group at the root of the tree: docker -v reads the path on the machine
+# that runs the docker daemon, and the tree is the one directory both are known to
+# share. Each is written whole under another name and renamed into place, so that a
+# ./run_docker started at the same time never mounts a file half written.
+passwd=/etc/passwd
+group=/etc/group
+if ! grep -q "^[^:]*:[^:]*:$(id -u):" /etc/passwd; then
+    passwd="$TARBALL_ROOT/.run_docker_passwd"
+    { cat /etc/passwd; getent passwd "$(id -u)" || true; } > "$passwd.$$"
+    mv -f "$passwd.$$" "$passwd"
+fi
+if ! grep -q "^[^:]*:[^:]*:$(id -g):" /etc/group; then
+    group="$TARBALL_ROOT/.run_docker_group"
+    { cat /etc/group; getent group "$(id -g)" || true; } > "$group.$$"
+    mv -f "$group.$$" "$group"
+fi
+args+=(-v "$passwd:/etc/passwd:ro" -v "$group:/etc/group:ro")
+
+exec docker run "${args[@]}" "$IMAGE_TAG" "${CMD[@]}"

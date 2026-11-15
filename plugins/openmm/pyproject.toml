@@ -1,0 +1,36 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nv-openmm-plugin"
+dynamic = ["version", "dependencies", "readme"]
+description = "NVIDIA GPU-accelerated nonbonded plugin for OpenMM"
+# The README is embedded in the wheel's own METADATA, so `pip show` and any index
+# page carry it: setup.py passes it, with its relative links made absolute links
+# to the release on GitHub, which is the one change from README.md.
+requires-python = ">=3.10"
+# The overview identifies each component's license; full texts ship alongside it.
+license = {file = "LICENSE"}
+# Derive CUDA/cuFFT dependencies from the shipped runtime metadata. NVRTC must
+# match the embedded LTO IR's CUDA major/minor, including on CUDA 13.0 builds.
+# OpenMM is required in the series the plugin was built against, with the CUDA
+# extra; see write_package_metadata.py.
+
+[tool.setuptools.dynamic]
+version = {file = "VERSION"}
+dependencies = {file = "runtime-requirements.txt"}
+
+[tool.setuptools]
+package-dir = {"" = "python"}
+license-files = ["LICENSE", "LICENSE-apache.txt", "LICENSE-cupo.txt", "NOTICE", "THIRD-PARTY.txt"]
+
+[tool.setuptools.packages.find]
+where = ["python"]
+include = ["nv_openmm_plugin*"]
+
+[tool.setuptools.package-data]
+nv_openmm_plugin = ["lib/*.so", "lib/libcupo.so.*", "*.so", "runtime_build.json", "notices/*.txt", "notices/NOTICE", "notices/LICENSE"]

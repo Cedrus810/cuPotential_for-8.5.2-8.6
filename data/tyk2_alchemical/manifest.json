@@ -1,0 +1,516 @@
+{
+  "schema_version": 1,
+  "systems": {
+    "rbfe": {
+      "files": {
+        "system": "rbfe/system.xml.gz",
+        "positions": "rbfe/positions.npz"
+      },
+      "globals": {
+        "lambda_bonds": 0.5,
+        "lambda_angles": 0.5,
+        "lambda_torsions": 0.5,
+        "lambda_electrostatics_core": 0.5,
+        "lambda_sterics_core": 0.5,
+        "lambda_electrostatics_delete": 1.0,
+        "lambda_electrostatics_insert": 0.0,
+        "softcore_alpha": 0.85,
+        "lambda_sterics_insert": 0.75,
+        "lambda_sterics_delete": 0.25
+      },
+      "metadata": {
+        "atoms": 34082,
+        "constraints": 31651,
+        "force_counts": {
+          "CustomBondForce": 2,
+          "HarmonicBondForce": 1,
+          "CustomAngleForce": 1,
+          "HarmonicAngleForce": 1,
+          "CustomTorsionForce": 1,
+          "PeriodicTorsionForce": 1,
+          "NonbondedForce": 1,
+          "CustomNonbondedForce": 1,
+          "CMMotionRemover": 1
+        },
+        "forces": [
+          {
+            "index": 0,
+            "type": "CustomBondForce",
+            "name": "CustomBondForce",
+            "group": 0,
+            "bonds": 22,
+            "periodic": false
+          },
+          {
+            "index": 1,
+            "type": "HarmonicBondForce",
+            "name": "HarmonicBondForce",
+            "group": 0
+          },
+          {
+            "index": 2,
+            "type": "CustomAngleForce",
+            "name": "CustomAngleForce",
+            "group": 0
+          },
+          {
+            "index": 3,
+            "type": "HarmonicAngleForce",
+            "name": "HarmonicAngleForce",
+            "group": 0
+          },
+          {
+            "index": 4,
+            "type": "CustomTorsionForce",
+            "name": "CustomTorsionForce",
+            "group": 0
+          },
+          {
+            "index": 5,
+            "type": "PeriodicTorsionForce",
+            "name": "PeriodicTorsionForce",
+            "group": 0
+          },
+          {
+            "index": 6,
+            "type": "NonbondedForce",
+            "name": "NonbondedForce",
+            "group": 0,
+            "cutoff_nm": 0.9,
+            "particles": 34082,
+            "exceptions": 55094,
+            "particle_offsets": 36,
+            "exception_offsets": 286,
+            "dispersion_correction": true,
+            "switching": true,
+            "switching_nm": 0.8,
+            "exceptions_periodic": false
+          },
+          {
+            "index": 7,
+            "type": "CustomNonbondedForce",
+            "name": "CustomNonbondedForce",
+            "group": 0,
+            "cutoff_nm": 0.9,
+            "particles": 34082,
+            "exclusions": 55094,
+            "interaction_groups": 8,
+            "long_range_correction": true,
+            "switching": true,
+            "switching_nm": 0.8,
+            "parameters": [
+              "sigmaA",
+              "epsilonA",
+              "sigmaB",
+              "epsilonB",
+              "unique_old",
+              "unique_new"
+            ]
+          },
+          {
+            "index": 8,
+            "type": "CustomBondForce",
+            "name": "CustomBondForce_exceptions",
+            "group": 0,
+            "bonds": 13,
+            "periodic": false
+          },
+          {
+            "index": 9,
+            "type": "CMMotionRemover",
+            "name": "CMMotionRemover",
+            "group": 0
+          }
+        ],
+        "cutoff_nm": 0.9,
+        "periodic_box_nm": [
+          [
+            8.038225774298521,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            8.038225774298521,
+            0.0
+          ],
+          [
+            4.0191128871492605,
+            4.0191128871492605,
+            5.683883953714972
+          ]
+        ],
+        "box_shape": "rhombic dodecahedron in OpenMM reduced form",
+        "timestep_fs": 4.0,
+        "hydrogen_mass_amu": 3.0,
+        "temperature_kelvin": 300.0,
+        "friction_per_ps": 1.0,
+        "lambda_value": 0.5,
+        "lambda_semantics": "OpenFE namd protocol master lambda=0.5: steric insert=0.75/delete=0.25, unique charges off; core and bonded lambdas=0.5.",
+        "alchemical_atoms": [
+          4670,
+          4671,
+          4672,
+          4673,
+          4674,
+          4675,
+          4676,
+          4677,
+          4678,
+          4679,
+          4680,
+          4681,
+          4682,
+          4683,
+          4684,
+          4685,
+          4686,
+          4687,
+          4688,
+          4689,
+          4690,
+          4691,
+          4692,
+          4693,
+          4694,
+          4695,
+          4696,
+          4697,
+          4698,
+          4699,
+          4700,
+          4701,
+          34078,
+          34079,
+          34080,
+          34081
+        ],
+        "dummy_atoms": [
+          4700,
+          34078,
+          34079,
+          34080,
+          34081
+        ],
+        "native_exceptions_periodic": false,
+        "cmmotion_frequency": 100,
+        "interpolate_old_and_new_14s": true,
+        "interpolated_exception_bonds": 13,
+        "preparation": "Minimization (10 kJ/mol/nm, at most 1000 iterations), 5 ps NVT at 2 fs then 20 ps at 4 fs, LangevinMiddle 300 K, 1/ps, HMR 3 amu.",
+        "restraint_scope": "No Boresch restraints or free-energy sampling protocol."
+      }
+    },
+    "abfe": {
+      "files": {
+        "system": "abfe/system.xml.gz",
+        "positions": "abfe/positions.npz"
+      },
+      "globals": {
+        "lambda_electrostatics": 0.0,
+        "lambda_sterics": 0.5,
+        "softcore_alpha": 0.5,
+        "softcore_beta": 0.0,
+        "softcore_a": 1.0,
+        "softcore_b": 1.0,
+        "softcore_c": 6.0,
+        "softcore_d": 1.0,
+        "softcore_e": 1.0,
+        "softcore_f": 2.0
+      },
+      "metadata": {
+        "atoms": 34078,
+        "constraints": 31648,
+        "force_counts": {
+          "CMMotionRemover": 1,
+          "HarmonicBondForce": 1,
+          "PeriodicTorsionForce": 1,
+          "HarmonicAngleForce": 1,
+          "NonbondedForce": 1,
+          "CustomNonbondedForce": 2,
+          "CustomBondForce": 2
+        },
+        "forces": [
+          {
+            "index": 0,
+            "type": "CMMotionRemover",
+            "name": "CMMotionRemover",
+            "group": 0
+          },
+          {
+            "index": 1,
+            "type": "HarmonicBondForce",
+            "name": "HarmonicBondForce",
+            "group": 0
+          },
+          {
+            "index": 2,
+            "type": "PeriodicTorsionForce",
+            "name": "PeriodicTorsionForce",
+            "group": 0
+          },
+          {
+            "index": 3,
+            "type": "HarmonicAngleForce",
+            "name": "HarmonicAngleForce",
+            "group": 0
+          },
+          {
+            "index": 4,
+            "type": "NonbondedForce",
+            "name": "NonbondedForce",
+            "group": 1,
+            "cutoff_nm": 0.9,
+            "particles": 34078,
+            "exceptions": 55066,
+            "particle_offsets": 32,
+            "exception_offsets": 64,
+            "dispersion_correction": true,
+            "switching": true,
+            "switching_nm": 0.8,
+            "exceptions_periodic": false
+          },
+          {
+            "index": 5,
+            "type": "CustomNonbondedForce",
+            "name": "CustomNonbondedForce",
+            "group": 2,
+            "cutoff_nm": 0.9,
+            "particles": 34078,
+            "exclusions": 55066,
+            "interaction_groups": 1,
+            "long_range_correction": true,
+            "switching": true,
+            "switching_nm": 0.8,
+            "parameters": [
+              "sigma",
+              "epsilon"
+            ]
+          },
+          {
+            "index": 6,
+            "type": "CustomNonbondedForce",
+            "name": "CustomNonbondedForce",
+            "group": 2,
+            "cutoff_nm": 0.9,
+            "particles": 34078,
+            "exclusions": 55066,
+            "interaction_groups": 1,
+            "long_range_correction": true,
+            "switching": true,
+            "switching_nm": 0.8,
+            "parameters": [
+              "sigma",
+              "epsilon"
+            ]
+          },
+          {
+            "index": 7,
+            "type": "CustomBondForce",
+            "name": "CustomBondForce",
+            "group": 2,
+            "bonds": 0,
+            "periodic": false
+          },
+          {
+            "index": 8,
+            "type": "CustomBondForce",
+            "name": "CustomBondForce",
+            "group": 2,
+            "bonds": 64,
+            "periodic": false
+          }
+        ],
+        "cutoff_nm": 0.9,
+        "periodic_box_nm": [
+          [
+            8.038225774298521,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            8.038225774298521,
+            0.0
+          ],
+          [
+            4.0191128871492605,
+            4.0191128871492605,
+            5.683883953714972
+          ]
+        ],
+        "box_shape": "rhombic dodecahedron in OpenMM reduced form",
+        "timestep_fs": 4.0,
+        "hydrogen_mass_amu": 3.0,
+        "temperature_kelvin": 300.0,
+        "friction_per_ps": 1.0,
+        "lambda_value": 0.5,
+        "lambda_semantics": "Steric decoupling midpoint lambda_sterics=0.5 after electrostatic annihilation (lambda_electrostatics=0). No Boresch/restraint or free-energy estimator protocol.",
+        "alchemical_atoms": [
+          4670,
+          4671,
+          4672,
+          4673,
+          4674,
+          4675,
+          4676,
+          4677,
+          4678,
+          4679,
+          4680,
+          4681,
+          4682,
+          4683,
+          4684,
+          4685,
+          4686,
+          4687,
+          4688,
+          4689,
+          4690,
+          4691,
+          4692,
+          4693,
+          4694,
+          4695,
+          4696,
+          4697,
+          4698,
+          4699,
+          4700,
+          4701
+        ],
+        "dummy_atoms": [],
+        "native_exceptions_periodic": false,
+        "cmmotion_frequency": 100,
+        "interpolate_old_and_new_14s": false,
+        "interpolated_exception_bonds": 0,
+        "preparation": "Minimization (10 kJ/mol/nm, at most 1000 iterations), 5 ps NVT at 2 fs then 20 ps at 4 fs, LangevinMiddle 300 K, 1/ps, HMR 3 amu.",
+        "restraint_scope": "No Boresch restraints or free-energy sampling protocol."
+      }
+    }
+  },
+  "file_sha256": {
+    "abfe/expressions.json": "e8583ab0028e57ae0d7c16f3541715ab4ce5a8214a1c2832beb4362737248f6d",
+    "abfe/positions.npz": "9b5777d15ad98a3c4e0efa0aa172dca274720528d8d07f6b21e6d2d701e782fa",
+    "abfe/preparation.json": "022d80f7bc7b592ac501970faaa0f2f8c2c2c6d52e7175ac0f00e9ecf4d8848d",
+    "abfe/system.xml.gz": "9b5c0eda1a6e92c9fe6e24c69a451a99efd13b009850fbe1996ee840b83aef02",
+    "rbfe/expressions.json": "34b5c494172fef8668fb2112670115d379481856f0ddee692b78bd4286679ab4",
+    "rbfe/positions.npz": "03ed0c2f47e2ef6cad0f8fbd74623aeb8708624ae082700ef32ea907edeb15ee",
+    "rbfe/preparation.json": "2166f3177876c00e069b093a2f09fb6b103fa65d21785f6cf017ff8d9fb26f1f",
+    "rbfe/system.xml.gz": "5e1c2312d6c547883acb9e678d81e22c7e2b4082f5455a638edca7e62af84b64"
+  },
+  "provenance": {
+    "dataset_repository": "https://github.com/OpenFreeEnergy/openfe-benchmarks",
+    "dataset_commit": "f85850eb2c4e53b6bbff563d882f4b6707a69d18",
+    "dataset_path": "openfe_benchmarks/data/benchmark_systems/jacs_set/tyk2",
+    "source_files": {
+      "protein.pdb": {
+        "url": "https://raw.githubusercontent.com/OpenFreeEnergy/openfe-benchmarks/f85850eb2c4e53b6bbff563d882f4b6707a69d18/openfe_benchmarks/data/benchmark_systems/jacs_set/tyk2/protein.pdb",
+        "sha256": "eb5b4eb0170997d781e878c25a69f5f4ecdd90f5c70797e6d32f0d44024c203b"
+      },
+      "ligands_antechamber_am1bcc.sdf": {
+        "url": "https://raw.githubusercontent.com/OpenFreeEnergy/openfe-benchmarks/f85850eb2c4e53b6bbff563d882f4b6707a69d18/openfe_benchmarks/data/benchmark_systems/jacs_set/tyk2/ligands_antechamber_am1bcc.sdf",
+        "sha256": "7cd476fa7f2aa3dfb618c10fd802e637eaf7a2b708ef0961d2ed83f67d1ccc2c"
+      },
+      "industry_benchmarks_network.json": {
+        "url": "https://raw.githubusercontent.com/OpenFreeEnergy/openfe-benchmarks/f85850eb2c4e53b6bbff563d882f4b6707a69d18/openfe_benchmarks/data/benchmark_systems/jacs_set/tyk2/industry_benchmarks_network.json",
+        "sha256": "cc06319903df6d1ec02d2d1a476491ff00aa82b1185624b6760b52583d370fc3"
+      },
+      "PREPARATION_DETAILS.md": {
+        "url": "https://raw.githubusercontent.com/OpenFreeEnergy/openfe-benchmarks/f85850eb2c4e53b6bbff563d882f4b6707a69d18/openfe_benchmarks/data/benchmark_systems/jacs_set/tyk2/PREPARATION_DETAILS.md",
+        "sha256": "d9c02e4d69554e91aec68a8423c01dc78524cfe9e434edfabf5263320fef3bc2"
+      },
+      "LICENSE.txt": {
+        "url": "https://raw.githubusercontent.com/OpenFreeEnergy/openfe-benchmarks/f85850eb2c4e53b6bbff563d882f4b6707a69d18/LICENSE",
+        "sha256": "bcf849f59c95a7f80b50f38b34c1d64278a37a13e4b874ac5f7eaf1aff57b21f"
+      }
+    },
+    "dataset_license": "MIT; see PROVENANCE.md#dataset-license",
+    "source_protein_preparation": "No change to ligand file.  \nProtein file changed using Maestro 12.6.  \nCapping groups renamed from UNK/UNK to ACE/NME, renumbered, and placed \nin order with ACE first residue and NME last residue.  \nExtra bonds between capping groups and their adjacent residues had \nto be added by hand.",
+    "openfe_factory_commit": "1d4610ba845f6fd7b9a107b262a345d1a063d89a",
+    "openmmtools_factory_commit": "ba4031da49981fe9e8b0bcec010ab53e18a03ba2",
+    "factory_sha256": {
+      "relative.py": "2a407297038ea90663f03a0d1aec1907076d51a5d67bb202317c741b8c06de9d",
+      "lambdaprotocol.py": "1a5c4b4a359b511027c52490b4de1d2b52e6d51eac3e1428e1931345c3747597",
+      "alchemy.py": "557edff2c0e4006892bf46fdd1db720ba3ce4d7f9bc48d4d535977a96711f91b"
+    },
+    "edge": "ejm_31 -> ejm_42",
+    "mapped_atoms": 31,
+    "old_only_atoms": 1,
+    "new_only_atoms": 4,
+    "edge_selection": "Actual network edge with a modest H-to-CH3 unique region and no mapped element changes; avoids changing mapped constrained X-H lengths.",
+    "protein_forcefield": "amber14-all.xml",
+    "water_forcefield": "amber14/tip3p.xml",
+    "ligand_forcefield": "openff-2.2.1",
+    "ligand_charges": "Dataset ligands_antechamber_am1bcc.sdf atom.dprop.PartialCharge, retained exactly (maximum endpoint charge deviation 0).",
+    "generation_seed": 20261025,
+    "generation_versions": {
+      "python": "3.12.15",
+      "openfe": "1.13.0",
+      "openmm": "8.4.0",
+      "openmmtools": "0.26.0",
+      "openmmforcefields": "0.15.1",
+      "openff-toolkit": "0.19.0",
+      "rdkit": "2025.9.6",
+      "numpy": "2.5.4"
+    },
+    "preparation_versions": {
+      "openmm": "8.4",
+      "gpu": "NVIDIA GeForce RTX 5090",
+      "precision": "mixed",
+      "deterministic_forces": true
+    },
+    "abfe_schedule_source": {
+      "package": "openfe 1.13.0",
+      "path": "src/openfe/protocols/openmm_afe/equil_afe_settings.py",
+      "class": "LambdaSettings",
+      "selected_window_index": 10,
+      "lambda_vdw_decoupling": 0.5,
+      "lambda_elec_annihilation": 1.0,
+      "factory_lambda_sterics_coupling": 0.5,
+      "factory_lambda_electrostatics_coupling": 0.0,
+      "commit": "858783fa1d8c99f482cee5f4ac20985c0b58668b",
+      "url": "https://raw.githubusercontent.com/OpenFreeEnergy/openfe/858783fa1d8c99f482cee5f4ac20985c0b58668b/src/openfe/protocols/openmm_afe/equil_afe_settings.py",
+      "sha256": "997a97932df794cdb2cea67ac34e0b94ffd77bf1be5d2963966c35a29dd20a67"
+    },
+    "restraint_scope": "No Boresch restraints, standard-state correction, endpoint sampler or free-energy estimator. Fixed-window Hamiltonian and complete-MD benchmark.",
+    "rbfe_protocol_sources": {
+      "equil_rfe_settings.py": {
+        "url": "https://raw.githubusercontent.com/OpenFreeEnergy/openfe/1d4610ba845f6fd7b9a107b262a345d1a063d89a/src/openfe/protocols/openmm_rfe/equil_rfe_settings.py",
+        "sha256": "5f15b7eb9a2b3095677b6372d6970634be422e777252f76bc215f7b7643f5128"
+      },
+      "hybridtop_units.py": {
+        "url": "https://raw.githubusercontent.com/OpenFreeEnergy/openfe/1d4610ba845f6fd7b9a107b262a345d1a063d89a/src/openfe/protocols/openmm_rfe/hybridtop_units.py",
+        "sha256": "c7f779c39a7cc088209dd0ac8607faf1ed0611aef64e869302bbf90768c9ab7b"
+      }
+    },
+    "rbfe_factory_settings": {
+      "interpolate_old_and_new_14s": true,
+      "protocol_setting": "turn_off_core_unique_exceptions=True",
+      "expected_interpolated_exception_bonds": 13,
+      "use_dispersion_correction": true,
+      "dispersion_policy": "Explicit override of OpenFE default False, to exercise lambda-dependent tail corrections.",
+      "softcore_LJ_v2": true,
+      "softcore_LJ_v2_alpha": 0.85,
+      "lambda_protocol": "namd",
+      "master_lambda": 0.5
+    },
+    "native_exception_distance_policy": {
+      "exceptions_use_periodic_boundary_conditions": false,
+      "policy": "Native exceptions use the default nonperiodic convention. Sparse CustomBondForce exception distances retain the factory nonperiodic convention.",
+      "prepared_state_reuse": {
+        "original_native_exceptions_periodic": true,
+        "preparation_rerun": false,
+        "scope": "Only the serialized native exception flags and their metadata were revised. Positions, velocities, force parameters and historical preparation checkpoints are unchanged. All native exception displacements are identical under raw and reduced-box minimum-image geometry at each stored frame."
+      }
+    },
+    "edge_mapping_source": "https://raw.githubusercontent.com/OpenFreeEnergy/openfe-benchmarks/f85850eb2c4e53b6bbff563d882f4b6707a69d18/openfe_benchmarks/data/benchmark_systems/jacs_set/tyk2/industry_benchmarks_network.json",
+    "documentation": "PROVENANCE.md",
+    "nonbonded_settings": {
+      "cutoff_nm": 0.9,
+      "switching_distance_nm": 0.8,
+      "policy": "OpenFE 0.9 nm cutoff with a 0.1 nm LJ switching width; independent 1.0 nm solvation padding is unchanged.",
+      "source": "https://github.com/OpenFreeEnergy/openfe/pull/1523"
+    }
+  }
+}

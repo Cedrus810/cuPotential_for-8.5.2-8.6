@@ -1,0 +1,21 @@
+[
+  {
+    "force_index": 7,
+    "energy": "U_sterics;U_sterics = select(step(r - r_LJ), 4*epsilon*x*(x-1.0), U_sterics_quad);U_sterics_quad = Force*(((r - r_LJ)^2)/2 - (r - r_LJ)) + U_sterics_cut;U_sterics_cut = 4*epsilon*((sigma/r_LJ)^6)*(((sigma/r_LJ)^6) - 1.0);Force = -4*epsilon*((-12*sigma^12)/(r_LJ^13) + (6*sigma^6)/(r_LJ^7));x = (sigma/r)^6;r_LJ = softcore_alpha*((26/7)*(sigma^6)*lambda_sterics_deprecated)^(1/6);lambda_sterics_deprecated = new_interaction*(1.0 - lambda_sterics_insert) + old_interaction*lambda_sterics_delete;epsilon = (1-lambda_sterics)*epsilonA + lambda_sterics*epsilonB;reff_sterics = sigma*((softcore_alpha*lambda_alpha + (r/sigma)^6))^(1/6);sigma = (1-lambda_sterics)*sigmaA + lambda_sterics*sigmaB;lambda_alpha = new_interaction*(1-lambda_sterics_insert) + old_interaction*lambda_sterics_delete;lambda_sterics = core_interaction*lambda_sterics_core + new_interaction*lambda_sterics_insert + old_interaction*lambda_sterics_delete;core_interaction = delta(unique_old1+unique_old2+unique_new1+unique_new2);new_interaction = max(unique_new1, unique_new2);old_interaction = max(unique_old1, unique_old2);epsilonA = sqrt(epsilonA1*epsilonA2);epsilonB = sqrt(epsilonB1*epsilonB2);sigmaA = 0.5*(sigmaA1 + sigmaA2);sigmaB = 0.5*(sigmaB1 + sigmaB2);",
+    "parameters": [
+      "sigmaA",
+      "epsilonA",
+      "sigmaB",
+      "epsilonB",
+      "unique_old",
+      "unique_new"
+    ],
+    "globals": {
+      "softcore_alpha": 0.85,
+      "lambda_sterics_core": 0.5,
+      "lambda_electrostatics_core": 0.5,
+      "lambda_sterics_insert": 0.75,
+      "lambda_sterics_delete": 0.25
+    }
+  }
+]

@@ -1,0 +1,39 @@
+[
+  {
+    "force_index": 5,
+    "energy": "U_sterics;U_sterics = ((lambda_sterics)^softcore_a)*4*epsilon*x*(x-1.0);x = (sigma/reff_sterics)^6;reff_sterics = sigma*((softcore_alpha*(1.0-(lambda_sterics))^softcore_b + (r/sigma)^softcore_c))^(1/softcore_c);epsilon = sqrt(epsilon1*epsilon2);sigma = 0.5*(sigma1 + sigma2);",
+    "parameters": [
+      "sigma",
+      "epsilon"
+    ],
+    "globals": {
+      "lambda_sterics": 0.5,
+      "softcore_alpha": 0.5,
+      "softcore_beta": 0.0,
+      "softcore_a": 1.0,
+      "softcore_b": 1.0,
+      "softcore_c": 6.0,
+      "softcore_d": 1.0,
+      "softcore_e": 1.0,
+      "softcore_f": 2.0
+    }
+  },
+  {
+    "force_index": 6,
+    "energy": "U_sterics;U_sterics = ((lambda_sterics)^softcore_a)*4*epsilon*x*(x-1.0);x = (sigma/reff_sterics)^6;reff_sterics = sigma*((softcore_alpha*(1.0-(lambda_sterics))^softcore_b + (r/sigma)^softcore_c))^(1/softcore_c);epsilon = sqrt(epsilon1*epsilon2);sigma = 0.5*(sigma1 + sigma2);lambda_sterics=1.0;",
+    "parameters": [
+      "sigma",
+      "epsilon"
+    ],
+    "globals": {
+      "softcore_alpha": 0.5,
+      "softcore_beta": 0.0,
+      "softcore_a": 1.0,
+      "softcore_b": 1.0,
+      "softcore_c": 6.0,
+      "softcore_d": 1.0,
+      "softcore_e": 1.0,
+      "softcore_f": 2.0
+    }
+  }
+]
