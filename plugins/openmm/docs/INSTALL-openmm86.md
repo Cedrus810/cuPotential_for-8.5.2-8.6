@@ -61,7 +61,7 @@ python -c "import openmm, nv_openmm_plugin as nv; print(openmm.version.full_vers
 1. **适配 OpenMM 8.6**：插件源码不用改，重新编译即可。构建时会自动探测 OpenMM 的系列，依赖钉扎和加载时的版本检查都按 8.6 生成。
 2. **修正 OpenMM 8.5 以后的能量最小化**：OpenMM 8.5 起，能量最小化改在 GPU 上做。对于有约束的体系，约束弹簧的力会越来越大，最终溢出 GPU 的定点数力缓冲。溢出后 OpenMM 会在 CPU 上用整个 System 新建一个 Context 来算，而插件的力在 CPU 上没有实现，于是报错 `Specified a Platform for a Context which does not support all required kernels`。本版本的处理是：
    - System 里**没有**插件的力：照常用 OpenMM 自己的 GPU 能量最小化，行为不变；
-   - System 里**有**插件的力（`nv.NonbondedForce`、`nv.MonteCarloBarostat`）：按 OpenMM 8.4 的做法，在主机上跑 L-BFGS，约束弹簧在主机上用双精度计算。结果和 8.4 一致，但速度回到 8.4 的水平（用不上 GPU 能量最小化）；
+   - System 里**有**插件的力（`nv.NonbondedForce`、`nv.MonteCarloBarostat`）：按 OpenMM 8.4 的做法，在主机上跑 L-BFGS，约束弹簧在主机上用双精度计算。这是 8.4 的算法，用不上 8.5 以后的 GPU 能量最小化，所以会比它慢；
    - 体系本身的力超过约 2e9 kJ/mol/nm（比如原子重叠）时，会直接报错并说明原因，不再转去 CPU。遇到这种情况，先把结构里的冲突处理掉再做能量最小化。
 3. 用法和 API 与官方 0.3.5 完全一样，可以参考官方 README 和 `samples/`。
 
