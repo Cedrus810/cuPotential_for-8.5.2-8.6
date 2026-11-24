@@ -51,6 +51,47 @@ def _preload_cufft_jit_toolchain():
                                  (site_packages, "nvidia/*/lib/{stem}.so.*")])
 
 
+def _assert_openmm_series(mm, metadata_path=None):
+    """Refuse to load when the running OpenMM is outside the series the plugin
+    binaries were built against.
+
+    runtime_build.json carries openmm_min/openmm_max (the pair the build's
+    CMake probe wrote, e.g. "8.5" and "8.6"), and both package managers pin
+    the same bounds -- but libOpenMM.so itself has no versioned soname, so
+    nothing stops the loader from binding our binaries to any OpenMM in the
+    process. recipe/meta.yaml documents the failure mode: a >=8.4 pin resolved
+    8.6.0, loaded without a murmur, and the divergence only showed up later.
+    This is the load-time gate against it. A dev build such as
+    8.5.2.dev-36a30cb parses as 8.5.2. No metadata file, nothing to check: a
+    tree without the built payload cannot load the plugin anyway, and the
+    soft-import contract stays intact.
+    """
+    import json
+    import re
+    path = metadata_path if metadata_path is not None else _PKG_DIR / "runtime_build.json"
+    try:
+        metadata = json.loads(path.read_text())
+        low = tuple(int(part) for part in str(metadata['openmm_min']).split('.'))
+        high = tuple(int(part) for part in str(metadata['openmm_max']).split('.'))
+    except (OSError, ValueError, KeyError, TypeError):
+        return
+    match = re.match(r'(\d+)\.(\d+)(?:\.(\d+))?', mm.version.full_version)
+    if not match:
+        return
+    running = (int(match.group(1)), int(match.group(2)), int(match.group(3) or 0))
+    # Pad the bounds to the running version's shape: "8.5" is (8, 5, 0).
+    low += (0,) * (3 - len(low))
+    high += (0,) * (3 - len(high))
+    if not (low <= running < high):
+        raise RuntimeError(
+            "nv_openmm_plugin was built against OpenMM %s..<%s, but this "
+            "process is running OpenMM %s. The plugin's binaries bind to "
+            "whatever libOpenMM.so is present (it carries no versioned "
+            "soname), so this pairing is refused here rather than allowed to "
+            "diverge silently." % (metadata['openmm_min'], metadata['openmm_max'],
+                                   mm.version.full_version))
+
+
 def _load():
     """Load this package's own plugin libraries into stock OpenMM, once.
 
@@ -76,6 +117,11 @@ def _load():
         return _NV
 
     import openmm as mm
+
+    # Gate the OpenMM pairing before anything of ours is resident: our binaries
+    # bind to whatever libOpenMM.so is in the process, so the series is checked
+    # against the one the build recorded (see _assert_openmm_series).
+    _assert_openmm_series(mm)
 
     # First, so a bad value fails every load rather than leaving a run unseeded.
     seed = _rng_seed.from_env()

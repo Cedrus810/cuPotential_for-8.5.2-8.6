@@ -111,8 +111,15 @@ using namespace OpenMM;
 
 
 /* Custom records accept numeric sequences, including numpy arrays and OpenMM
- * quantities, without relying on numpy C helpers private to OpenMM's module. */
-%typemap(in, fragment="Py_StripOpenMMUnits") const std::vector<double>& parameters (std::vector<double> temp) {
+ * quantities, without relying on numpy C helpers private to OpenMM's module.
+ *
+ * No fragment="Py_StripOpenMMUnits" on these typemaps. OpenMM 8.5 moved the
+ * helper out of a swig fragment into %header, so a fragment reference here
+ * dangles (SWIG 4.5: Warning 490) while the name is injected into every
+ * generated module unconditionally anyway. On 8.4 the fragment still reaches
+ * the generated code through OpenMM's own double typemaps, which declare it,
+ * so the bare calls below resolve there too. */
+%typemap(in) const std::vector<double>& parameters (std::vector<double> temp) {
     PyObject* stripped = Py_StripOpenMMUnits($input);
     if (!stripped) SWIG_fail;
     if (PyBytes_Check(stripped) || PyByteArray_Check(stripped) || PyUnicode_Check(stripped)) {
@@ -137,7 +144,7 @@ using namespace OpenMM;
     $1 = &temp;
 }
 %typemap(freearg) const std::vector<double>& parameters { }
-%typemap(typecheck, precedence=SWIG_TYPECHECK_DOUBLE_ARRAY, fragment="Py_StripOpenMMUnits") const std::vector<double>& parameters {
+%typemap(typecheck, precedence=SWIG_TYPECHECK_DOUBLE_ARRAY) const std::vector<double>& parameters {
     PyObject* stripped = Py_StripOpenMMUnits($input);
     $1 = stripped && PySequence_Check(stripped) && !PyBytes_Check(stripped) &&
          !PyByteArray_Check(stripped) && !PyUnicode_Check(stripped);
@@ -175,7 +182,7 @@ using namespace OpenMM;
     $1 = PySequence_Check($input) && !PyUnicode_Check($input) && !PyBytes_Check($input);
 }
 
-%typemap(in, fragment="Py_StripOpenMMUnits") const std::vector<std::vector<double>>& particleParameters (std::vector<std::vector<double>> temp) {
+%typemap(in) const std::vector<std::vector<double>>& particleParameters (std::vector<std::vector<double>> temp) {
     PyObject* stripped = Py_StripOpenMMUnits($input);
     if (!stripped) SWIG_fail;
     PyObject* rows = PySequence_Fast(stripped, "particleParameters must be a sequence of numeric rows");
@@ -210,7 +217,7 @@ using namespace OpenMM;
     $1 = &temp;
 }
 %typemap(freearg) const std::vector<std::vector<double>>& particleParameters { }
-%typemap(typecheck, precedence=SWIG_TYPECHECK_DOUBLE_ARRAY, fragment="Py_StripOpenMMUnits") const std::vector<std::vector<double>>& particleParameters {
+%typemap(typecheck, precedence=SWIG_TYPECHECK_DOUBLE_ARRAY) const std::vector<std::vector<double>>& particleParameters {
     PyObject* stripped = Py_StripOpenMMUnits($input);
     $1 = stripped && PySequence_Check(stripped) && !PyUnicode_Check(stripped) &&
          !PyBytes_Check(stripped) && !PyByteArray_Check(stripped);
@@ -218,7 +225,7 @@ using namespace OpenMM;
     if (!$1) PyErr_Clear();
 }
 
-%typemap(in, fragment="Py_StripOpenMMUnits") const std::map<std::string, double>& globalParameters (std::map<std::string, double> temp) {
+%typemap(in) const std::map<std::string, double>& globalParameters (std::map<std::string, double> temp) {
     if (!PyDict_Check($input)) {
         PyErr_SetString(PyExc_TypeError, "globalParameters must be a dict of names and defaults");
         SWIG_fail;

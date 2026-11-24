@@ -56,6 +56,10 @@ endif()
 
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" _VERSION)
 string(STRIP "${_VERSION}" _VERSION)
+# project(VERSION) takes digits and dots only; a PEP 440 local label such as
+# "+openmm86" belongs to the package version (pyproject.toml reads VERSION
+# itself), not to CMake's.
+string(REGEX REPLACE "\\+.*$" "" _VERSION "${_VERSION}")
 project(OpenMMNvidiaPlugin VERSION ${_VERSION} LANGUAGES CXX)
 
 option(OPENMM_NVIDIA_STANDALONE "Build the Nvidia plugin outside the OpenMM source tree" ON)
@@ -105,6 +109,93 @@ if(NOT OPENMM_INCLUDE_DIR OR NOT OPENMM_CORE_LIBRARY OR NOT OPENMM_CUDA_LIBRARY)
         "Set OPENMM_INCLUDE_DIR, OPENMM_CORE_LIBRARY, and OPENMM_CUDA_LIBRARY "
         "to build the standalone plugin against stock OpenMM.")
 endif()
+
+# OpenMM series probe. OpenMM ships no version header in any series we support
+# (8.4-8.6): the version exists only as the runtime string
+# Platform::getOpenMMVersion(). The series decides the NV_OPENMM_GE_* macros
+# (attached to the plugin targets in cpp/CMakeLists.txt) and the openmm bounds
+# recorded in plugin_build.json, which write_package_metadata.py carries into
+# the package for the Python loader and both package managers. Discovered by
+# compiling and running a one-liner against OPENMM_INCLUDE_DIR and
+# OPENMM_CORE_LIBRARY, so it works for conda and pip layouts alike;
+# -DOPENMM_SERIES=8.5 skips the probe. The allowed set guards against pairing
+# with a series the plugin was never built for -- libOpenMM.so has no versioned
+# soname, so a wrong pairing loads silently (recipe/meta.yaml documents an
+# install test that resolved 8.6.0 against a >=8.4 pin exactly that way).
+set(NV_OPENMM_ALLOWED_SERIES "8.4;8.5;8.6" CACHE STRING
+    "OpenMM major.minor series the plugin may be built against")
+if(NOT OPENMM_SERIES)
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/openmm_series_probe.cpp"
+        "#include <iostream>\n"
+        "#include <openmm/Platform.h>\n"
+        "int main() { std::cout << OpenMM::Platform::getOpenMMVersion() << std::endl; }\n")
+    get_filename_component(_OPENMM_LIB_DIR "${OPENMM_CORE_LIBRARY}" DIRECTORY)
+    execute_process(
+        COMMAND ${CMAKE_CXX_COMPILER} -x c++
+            "${CMAKE_CURRENT_BINARY_DIR}/openmm_series_probe.cpp"
+            # Quote whole arguments: in an unquoted argument such as -I"${X}"
+            # CMake keeps the quotes literally, and the compiler gets a path
+            # with quote characters in it.
+            "-I${OPENMM_INCLUDE_DIR}" "-L${_OPENMM_LIB_DIR}"
+            "-Wl,-rpath,${_OPENMM_LIB_DIR}" -lOpenMM
+            -o "${CMAKE_CURRENT_BINARY_DIR}/openmm_series_probe"
+        RESULT_VARIABLE _PROBE_BUILD
+        ERROR_VARIABLE _PROBE_BUILD_ERR)
+    if(NOT _PROBE_BUILD EQUAL 0)
+        string(REPLACE "\n" "; " _PROBE_ERR "${_PROBE_BUILD_ERR}")
+        message(FATAL_ERROR
+            "Could not build the OpenMM version probe against "
+            "OPENMM_INCLUDE_DIR=${OPENMM_INCLUDE_DIR} and "
+            "OPENMM_CORE_LIBRARY=${OPENMM_CORE_LIBRARY}: ${_PROBE_ERR}. "
+            "Set -DOPENMM_SERIES=<major.minor> to skip the probe.")
+    endif()
+    set(_OLD_LLP "$ENV{LD_LIBRARY_PATH}")
+    set(ENV{LD_LIBRARY_PATH} "${_OPENMM_LIB_DIR}:${_OLD_LLP}")
+    execute_process(
+        COMMAND "${CMAKE_CURRENT_BINARY_DIR}/openmm_series_probe"
+        OUTPUT_VARIABLE _OPENMM_FULL_VERSION
+        RESULT_VARIABLE _PROBE_RUN
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET)
+    set(ENV{LD_LIBRARY_PATH} "${_OLD_LLP}")
+    if(NOT _PROBE_RUN EQUAL 0 OR NOT _OPENMM_FULL_VERSION)
+        message(FATAL_ERROR
+            "The OpenMM version probe did not run (built against "
+            "OPENMM_CORE_LIBRARY=${OPENMM_CORE_LIBRARY}). "
+            "Set -DOPENMM_SERIES=<major.minor> to skip the probe.")
+    endif()
+    set(OPENMM_SERIES "${_OPENMM_FULL_VERSION}")
+endif()
+# "8.5.2" and a dev build like "8.5.2.dev-36a30cb" alike reduce to the series
+# "8.5"; the upper bound is the next minor, matching the closed per-series caps
+# the recipe keeps.
+string(REGEX MATCH "^([0-9]+)\\.([0-9]+)" _OPENMM_SERIES_MATCH "${OPENMM_SERIES}")
+if(NOT _OPENMM_SERIES_MATCH)
+    message(FATAL_ERROR "Cannot parse an OpenMM series out of '${OPENMM_SERIES}'. "
+        "Set -DOPENMM_SERIES=<major.minor> explicitly.")
+endif()
+set(_OPENMM_MAJOR "${CMAKE_MATCH_1}")
+set(_OPENMM_MINOR "${CMAKE_MATCH_2}")
+set(OPENMM_SERIES "${_OPENMM_MAJOR}.${_OPENMM_MINOR}")
+if(NOT OPENMM_SERIES IN_LIST NV_OPENMM_ALLOWED_SERIES)
+    message(FATAL_ERROR
+        "OpenMM ${OPENMM_SERIES} (${_OPENMM_FULL_VERSION}) is not a series this "
+        "plugin supports (${NV_OPENMM_ALLOWED_SERIES}). Build against a listed "
+        "series, or extend NV_OPENMM_ALLOWED_SERIES if you know the pairing.")
+endif()
+math(EXPR _OPENMM_NEXT_MINOR "${_OPENMM_MINOR} + 1")
+set(NV_OPENMM_SERIES_MIN "${OPENMM_SERIES}")
+set(NV_OPENMM_SERIES_MAX "${_OPENMM_MAJOR}.${_OPENMM_NEXT_MINOR}")
+set(NV_OPENMM_COMPILE_DEFINITIONS)
+if(NOT _OPENMM_MINOR LESS 5)
+    list(APPEND NV_OPENMM_COMPILE_DEFINITIONS NV_OPENMM_GE_85)
+endif()
+if(NOT _OPENMM_MINOR LESS 6)
+    list(APPEND NV_OPENMM_COMPILE_DEFINITIONS NV_OPENMM_GE_86)
+endif()
+message(STATUS "OpenMM series: ${OPENMM_SERIES} (${_OPENMM_FULL_VERSION}); "
+    "bounds ${NV_OPENMM_SERIES_MIN}..<${NV_OPENMM_SERIES_MAX}; "
+    "defines ${NV_OPENMM_COMPILE_DEFINITIONS}")
 
 set(OPENMM_EXTRA_INCLUDE_DIRS "" CACHE STRING
     "Additional OpenMM include directories needed for source-tree builds")

@@ -49,6 +49,10 @@ ADD_LIBRARY(${SHARED_NVIDIA_TARGET} SHARED
     ${SOURCE_NVIDIA_INCLUDE_FILES}
     ${API_NVIDIA_ABS_INCLUDE_FILES})
 target_compile_features(${SHARED_NVIDIA_TARGET} PUBLIC cxx_std_17)
+# Series gate, probed by the parent CMakeLists: NV_OPENMM_GE_85/GE_86 let the
+# sources carry 8.5/8.6-only call sites behind #if when one ever exists -- the
+# audit found none today, so the macros are insurance, not load-bearing.
+target_compile_definitions(${SHARED_NVIDIA_TARGET} PRIVATE ${NV_OPENMM_COMPILE_DEFINITIONS})
 
 SET_TARGET_PROPERTIES(${SHARED_NVIDIA_TARGET} PROPERTIES
     LINK_FLAGS "${EXTRA_LINK_FLAGS} -Wl,--enable-new-dtags"
@@ -167,6 +171,13 @@ target_link_libraries(nvplugin PRIVATE
     ${SHARED_NVIDIA_TARGET}
     ${OPENMM_CORE_LIBRARY}
     Python3::Module)
+# The generated wrapper compiles the same nvopenmm headers (the .i %include list
+# pulls them in), so it sees the same series macros as the two libraries: a
+# future #if NV_OPENMM_GE_85 member in a public header must not give
+# _nvplugin.so a different class shape than the libraries were built with.
+# SWIG's own parse-time preprocessor is separate from this; the first call site
+# SWIG itself must see conditionally gets explicit handling then.
+target_compile_definitions(nvplugin PRIVATE ${NV_OPENMM_COMPILE_DEFINITIONS})
 set_target_properties(nvplugin PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/swig"
     OUTPUT_NAME "_nvplugin"

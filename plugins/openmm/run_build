@@ -76,7 +76,9 @@ if [ -x "$TIMED_COMPILE" ]; then
     CMAKE_ARGS+=(-DCMAKE_PROJECT_INCLUDE="${TIMED_COMPILE%/*}/timed-link.cmake")
 fi
 
-OPENMM=/opt/openmm
+# OPENMM overrides the prefix for a build outside docker (a conda env with openmm
+# and swig); unset, it is the image's /opt/openmm.
+OPENMM="${OPENMM:-/opt/openmm}"
 
 cmake -S "$SCRIPT_DIR" -B "$BUILD_DIR" \
     -DCMAKE_BUILD_TYPE=Release \

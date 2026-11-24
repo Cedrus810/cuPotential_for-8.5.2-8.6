@@ -56,15 +56,18 @@ requirements:
   # soname -- so the loader will happily bind our plugin to any OpenMM the solver
   # feels like installing, across an ABI that changes between minor releases. With
   # `>=8.4` an install test resolved openmm 8.6.0 and got that far without a
-  # murmur. Bump this when the plugin is rebuilt against a newer OpenMM, together
-  # with the wheel's cap in write_package_metadata.py.
+  # murmur -- the cautionary tale behind the closed cap and the loader's own
+  # series gate. The bounds below come from runtime_build.json, which the build's
+  # OpenMM-series probe (plugins/openmm/CMakeLists.txt) writes -- the same pair
+  # the wheel's requirements and the Python loader read, so a rebuild re-derives
+  # them all; no per-release hand-editing.
   run:
     # >=3.12,<3.13 rather than >=3.10: this ships a compiled extension built
     # against the host python above, so it is ABI-bound to that series. The
     # ignored run_export used to supply this bound; with it ignored, it has to
     # be stated. python_abi still arrives by run_export and pins the ABI itself.
     - python >=3.12,<3.13.0a0
-    - openmm >=8.4,<8.5.0a0
+    - openmm >={{ runtime['openmm_min'] }},<{{ runtime['openmm_max'] }}.0a0
     - cuda-version >={{ runtime['cuda_min'] }},<{{ runtime['cuda_max'] }}
     - cuda-cudart >={{ runtime['cuda_min'] }},<{{ runtime['cuda_max'] }}
     - libcufft >={{ runtime['cufft_min'] }},<{{ runtime['cufft_max'] }}

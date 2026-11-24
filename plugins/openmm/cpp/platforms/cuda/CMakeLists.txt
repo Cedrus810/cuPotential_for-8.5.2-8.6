@@ -26,12 +26,13 @@ SET(SHARED_TARGET ${OPENMMNVDIACUDA_LIBRARY_NAME})
 #   barostat/    NvMonteCarloBarostat's device work
 #   integrator/  NvLangevinMiddleIntegrator, its AOT kernels and constraints
 #   bonded/      grouped CUPO bonded adapter and stock OpenMM fallback
+#   minimize/    OpenMM 8.5+ Minimize kernel for Systems carrying this plugin's forces
 #
 # Listed explicitly rather than globbed recursively, so a new component has to be
 # declared here instead of appearing by accident.
 SET(SOURCE_FILES)
 SET(SOURCE_INCLUDE_FILES)
-SET(NV_CUDA_COMPONENTS common nonbonded barostat integrator bonded)
+SET(NV_CUDA_COMPONENTS common nonbonded barostat integrator bonded minimize)
 
 FOREACH(component ${NV_CUDA_COMPONENTS})
     FILE(GLOB c_src   ${CMAKE_CURRENT_SOURCE_DIR}/src/${component}/*.cpp)
@@ -72,10 +73,17 @@ INCLUDE_DIRECTORIES(BEFORE ${CMAKE_CURRENT_SOURCE_DIR}/../../openmmapi/include)
 
 ADD_LIBRARY(${SHARED_TARGET} SHARED ${SOURCE_FILES} ${SOURCE_INCLUDE_FILES})
 target_compile_features(${SHARED_TARGET} PRIVATE cxx_std_17)
-# Expression compilation and prepared layouts belong to Cupo::Runtime.
-# Record the plugin's CUDA toolkit for package compatibility checks.
+# Same series gate as the API library above (the probe is in the parent
+# CMakeLists; the macros are insurance, the audit found no version-specific
+# call sites today).
+target_compile_definitions(${SHARED_TARGET} PRIVATE ${NV_OPENMM_COMPILE_DEFINITIONS})
+# Expression compilation and prepared layouts belong to Cupo::Runtime. Record
+# the plugin's CUDA toolkit and the probed OpenMM series bounds in
+# plugin_build.json: the Python loader and both package managers read them.
 file(WRITE "${CMAKE_BINARY_DIR}/plugin_build.json"
-    "{\"cuda_min\": \"${CUDAToolkit_VERSION_MAJOR}.${CUDAToolkit_VERSION_MINOR}\"}\n")
+    "{\"cuda_min\": \"${CUDAToolkit_VERSION_MAJOR}.${CUDAToolkit_VERSION_MINOR}\", "
+    "\"openmm_min\": \"${NV_OPENMM_SERIES_MIN}\", "
+    "\"openmm_max\": \"${NV_OPENMM_SERIES_MAX}\"}\n")
 
 SET_TARGET_PROPERTIES(${SHARED_TARGET} PROPERTIES
     CUDA_ARCHITECTURES "${CMAKE_CUDA_ARCHITECTURES}"

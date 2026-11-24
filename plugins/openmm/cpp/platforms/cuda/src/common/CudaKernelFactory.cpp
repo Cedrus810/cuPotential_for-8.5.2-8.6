@@ -26,6 +26,7 @@
 #include "barostat/CudaBarostatKernel.hpp"
 #include "integrator/CudaLangevinMiddleKernel.hpp"
 #include "bonded/GroupedBonded.hpp"
+#include "minimize/HostMinimizeKernel.hpp"
 #include "openmm/kernels.h"
 #include "nvopenmm/Kernels.h"
 #include "CudaContext.h"
@@ -53,6 +54,11 @@ extern "C" OPENMM_EXPORT void registerKernelFactories() {
         platform.registerKernelFactory(OpenMM::CalcHarmonicBondForceKernel::Name(), factory);
         platform.registerKernelFactory(OpenMM::CalcHarmonicAngleForceKernel::Name(), factory);
         platform.registerKernelFactory(OpenMM::CalcPeriodicTorsionForceKernel::Name(), factory);
+#ifdef NV_OPENMM_GE_85
+        // OpenMM 8.5+ minimizes through a platform kernel; see minimize/HostMinimizeKernel.hpp
+        // for why a System with this plugin's forces needs a different one.
+        platform.registerKernelFactory(OpenMM::MinimizeKernel::Name(), factory);
+#endif
     }
     catch (std::exception& ex) {
         // Ignore — CUDA platform may not be available
@@ -73,6 +79,7 @@ OpenMM::KernelImpl* CudaKernelFactory::createKernelImpl(std::string name,
                                                        const OpenMM::Platform& platform,
                                                        OpenMM::ContextImpl& context) const {
     if (auto* bonded=createGroupedBondedKernel(name,platform,context)) return bonded;
+    if (auto* minimize=createMinimizeKernel(name,platform,context)) return minimize;
     OpenMM::CudaContext& cu = *static_cast<OpenMM::CudaPlatform::PlatformData*>(
         context.getPlatformData())->contexts[0];
     if (name == CalcNonbondedForceKernel::Name())

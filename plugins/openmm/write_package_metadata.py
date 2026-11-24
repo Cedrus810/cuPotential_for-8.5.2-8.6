@@ -17,6 +17,15 @@ if hashlib.sha256(library.read_bytes()).hexdigest() != metadata['library_sha256'
 plugin_metadata = json.loads((args.plugin_root/'build/plugin_build.json').read_text())
 if plugin_metadata['cuda_min'] != metadata['cuda_min']:
     raise SystemExit('Build the OpenMM plugin and cuPo runtime with the same CUDA major/minor')
+# The OpenMM series bounds the CMake probe recorded. Every consumer -- the
+# wheel requirements below, the Python loader's import-time gate, and
+# recipe/meta.yaml's conda pin -- reads the same pair, so one probe run keeps
+# all three in step.
+for key in ('openmm_min', 'openmm_max'):
+    if key not in plugin_metadata:
+        raise SystemExit(f'plugin_build.json lacks {key}; the OpenMM-series probe '
+                         'in plugins/openmm/CMakeLists.txt writes it -- rebuild')
+    metadata[key] = plugin_metadata[key]
 package = args.plugin_root/'python/nv_openmm_plugin'
 # The package holds the runtime once, under its SONAME (run_build).
 shipped = sorted((package/'lib').glob('libcupo.so*'))
@@ -34,11 +43,12 @@ requirements = [f'{name}>={metadata[minimum]},<{metadata[maximum]}' for name, mi
     ('nvidia-nvjitlink', 'cuda_min', 'cuda_max'),
     ('nvidia-cuda-nvrtc', 'cuda_min', 'cuda_max')]]
 # OpenMM, capped to the series these binaries were built against, as recipe/meta.yaml
-# caps it for conda; bump both together. The CUDA extra is named so that pip moves
-# OpenMM and its CUDA platform (OpenMM-CUDA-<major>, which the extra pins to the same
-# version) together, never one without the other. A conda OpenMM inside the range
+# caps it for conda. The bounds come straight from the build's OpenMM-series probe
+# (plugin_build.json), not a hand-edited literal. The CUDA extra is named so that pip
+# moves OpenMM and its CUDA platform (OpenMM-CUDA-<major>, which the extra pins to the
+# same version) together, never one without the other. A conda OpenMM inside the range
 # satisfies this as it is: pip sees it through its egg-info, which declares no
 # extras, so pip warns that the extra is missing and installs nothing over it.
 cuda_major = metadata['cuda_min'].split('.')[0]
-requirements.append(f'openmm[cuda{cuda_major}]>=8.4,<8.5')
+requirements.append(f"openmm[cuda{cuda_major}]>={metadata['openmm_min']},<{metadata['openmm_max']}")
 (args.plugin_root/'runtime-requirements.txt').write_text('\n'.join(requirements)+'\n')
